@@ -769,131 +769,141 @@ print(f"  Model URI: {logged_agent_info.model_uri}")
 
 # COMMAND ----------
 
-from databricks import agents
-from databricks.sdk import WorkspaceClient
-from databricks.sdk.service.serving import EndpointCoreConfigInput, ServedEntityInput
-import time
+# DEPLOYMENT CODE TEMPORARILY COMMENTED OUT
+# Use notebook 05_deploy_agent.py to deploy the model
 
-w = WorkspaceClient()
+# from databricks import agents
+# from databricks.sdk import WorkspaceClient
+# from databricks.sdk.service.serving import EndpointCoreConfigInput, ServedEntityInput
+# import time
 
-# Check if endpoint already exists and delete if in bad state
-# agents.deploy() creates endpoint with "agents_" prefix and replaces dots with dashes
-endpoint_name = f"agents_{UC_MODEL_NAME.replace('.', '-')}"
-print(f"\n=== Deployment Information ===")
+# w = WorkspaceClient()
+
+# # Check if endpoint already exists and delete if in bad state
+# # agents.deploy() creates endpoint with "agents_" prefix and replaces dots with dashes
+# endpoint_name = f"agents_{UC_MODEL_NAME.replace('.', '-')}"
+# print(f"\n=== Deployment Information ===")
+# print(f"Model: {UC_MODEL_NAME}")
+# print(f"Version to deploy: {uc_registered_model_info.version}")
+# print(f"Endpoint name: {endpoint_name}")
+
+# try:
+#     existing_endpoint = w.serving_endpoints.get(endpoint_name)
+#     print(f"\nExisting endpoint found:")
+#     print(
+#         f"  State: {existing_endpoint.state.ready if existing_endpoint.state else 'Unknown'}"
+#     )
+
+#     # Check what version is currently served
+#     if existing_endpoint.config and existing_endpoint.config.served_entities:
+#         current_versions = [
+#             e.entity_version for e in existing_endpoint.config.served_entities
+#         ]
+#         print(f"  Currently serving versions: {current_versions}")
+
+#         if str(uc_registered_model_info.version) in [str(v) for v in current_versions]:
+#             print(f"  Version {uc_registered_model_info.version} is already deployed.")
+#             print(f"  This might explain why no new deployment event is created.")
+
+#     # Check if endpoint is in failed state or config is None
+#     is_failed = False
+#     endpoint_state = (
+#         existing_endpoint.state.config_update if existing_endpoint.state else None
+#     )
+
+#     if (
+#         endpoint_state == "UPDATE_FAILED"
+#         or existing_endpoint.state.ready == "NOT_READY"
+#     ):
+#         is_failed = True
+
+#     if existing_endpoint.config is None:
+#         print(f"\nEndpoint config is None - this causes the auto_capture_config error")
+#         is_failed = True
+
+#     if is_failed:
+#         print(
+#             f"\nEndpoint {endpoint_name} is in failed/bad state. Deleting and recreating..."
+#         )
+#         w.serving_endpoints.delete(endpoint_name)
+#         print(f"  Waiting 60 seconds for deletion to complete...")
+#         time.sleep(60)
+#         print("Endpoint deleted - fresh endpoint will be created")
+# except Exception as e:
+#     if "RESOURCE_DOES_NOT_EXIST" not in str(e):
+#         print(f"Note: {e}")
+#     else:
+#         print("No existing endpoint found - will create new one")
+
+# # Deploy the agent with retry logic
+# max_retries = 3
+# retry_delay = 60
+
+# print(f"\n=== Starting Deployment ===")
+# for attempt in range(max_retries):
+#     try:
+#         print(f"\nDeploying agent (attempt {attempt + 1}/{max_retries})...")
+#         print(f"  Model: {UC_MODEL_NAME}")
+#         print(f"  Version: {uc_registered_model_info.version}")
+
+#         deployment_info = agents.deploy(
+#             UC_MODEL_NAME,
+#             uc_registered_model_info.version,
+#             tags={
+#                 "architecture": "orchestrator-synthesizer",
+#                 "domain": "life-sciences",
+#             },
+#             deploy_feedback_model=False,
+#         )
+
+#         print(f"\nAgent deployed successfully.")
+#         print(f"  Model: {UC_MODEL_NAME}")
+#         print(f"  Version: {uc_registered_model_info.version}")
+#         print(f"  Endpoint: {endpoint_name}")
+
+#         # Show deployment details
+#         deployed_endpoint = w.serving_endpoints.get(endpoint_name)
+#         if deployed_endpoint.config and deployed_endpoint.config.served_entities:
+#             print(f"\nCurrently serving:")
+#             for entity in deployed_endpoint.config.served_entities:
+#                 print(
+#                     f"  - Version {entity.entity_version} (traffic: {entity.scale_to_zero_enabled})"
+#                 )
+
+#         break
+
+#     except AttributeError as e:
+#         if "auto_capture_config" in str(e) and attempt < max_retries - 1:
+#             print(
+#                 f"Deployment failed with config error. Retrying in {retry_delay} seconds..."
+#             )
+#             time.sleep(retry_delay)
+#         else:
+#             print(f"Deployment failed after {attempt + 1} attempts.")
+#             print(f"Error: {e}")
+#             print("\nTroubleshooting:")
+#             print(
+#                 f"1. Check endpoint status: w.serving_endpoints.get('{endpoint_name}')"
+#             )
+#             print(
+#                 f"2. Try deleting endpoint manually: w.serving_endpoints.delete('{endpoint_name}')"
+#             )
+#             print(f"3. Wait a few minutes and re-run this cell")
+#             raise
+#     except Exception as e:
+#         print(f"Deployment failed: {e}")
+#         if attempt < max_retries - 1:
+#             print(f"Retrying in {retry_delay} seconds...")
+#             time.sleep(retry_delay)
+#         else:
+#             raise
+
+print("\n=== Model Registered Successfully ===")
 print(f"Model: {UC_MODEL_NAME}")
-print(f"Version to deploy: {uc_registered_model_info.version}")
-print(f"Endpoint name: {endpoint_name}")
-
-try:
-    existing_endpoint = w.serving_endpoints.get(endpoint_name)
-    print(f"\nExisting endpoint found:")
-    print(
-        f"  State: {existing_endpoint.state.ready if existing_endpoint.state else 'Unknown'}"
-    )
-
-    # Check what version is currently served
-    if existing_endpoint.config and existing_endpoint.config.served_entities:
-        current_versions = [
-            e.entity_version for e in existing_endpoint.config.served_entities
-        ]
-        print(f"  Currently serving versions: {current_versions}")
-
-        if str(uc_registered_model_info.version) in [str(v) for v in current_versions]:
-            print(f"  Version {uc_registered_model_info.version} is already deployed.")
-            print(f"  This might explain why no new deployment event is created.")
-
-    # Check if endpoint is in failed state or config is None
-    is_failed = False
-    endpoint_state = (
-        existing_endpoint.state.config_update if existing_endpoint.state else None
-    )
-
-    if (
-        endpoint_state == "UPDATE_FAILED"
-        or existing_endpoint.state.ready == "NOT_READY"
-    ):
-        is_failed = True
-
-    if existing_endpoint.config is None:
-        print(f"\nEndpoint config is None - this causes the auto_capture_config error")
-        is_failed = True
-
-    if is_failed:
-        print(
-            f"\nEndpoint {endpoint_name} is in failed/bad state. Deleting and recreating..."
-        )
-        w.serving_endpoints.delete(endpoint_name)
-        print(f"  Waiting 60 seconds for deletion to complete...")
-        time.sleep(60)
-        print("Endpoint deleted - fresh endpoint will be created")
-except Exception as e:
-    if "RESOURCE_DOES_NOT_EXIST" not in str(e):
-        print(f"Note: {e}")
-    else:
-        print("No existing endpoint found - will create new one")
-
-# Deploy the agent with retry logic
-max_retries = 3
-retry_delay = 60
-
-print(f"\n=== Starting Deployment ===")
-for attempt in range(max_retries):
-    try:
-        print(f"\nDeploying agent (attempt {attempt + 1}/{max_retries})...")
-        print(f"  Model: {UC_MODEL_NAME}")
-        print(f"  Version: {uc_registered_model_info.version}")
-
-        deployment_info = agents.deploy(
-            UC_MODEL_NAME,
-            uc_registered_model_info.version,
-            tags={
-                "architecture": "orchestrator-synthesizer",
-                "domain": "life-sciences",
-            },
-            deploy_feedback_model=False,
-        )
-
-        print(f"\nAgent deployed successfully.")
-        print(f"  Model: {UC_MODEL_NAME}")
-        print(f"  Version: {uc_registered_model_info.version}")
-        print(f"  Endpoint: {endpoint_name}")
-
-        # Show deployment details
-        deployed_endpoint = w.serving_endpoints.get(endpoint_name)
-        if deployed_endpoint.config and deployed_endpoint.config.served_entities:
-            print(f"\nCurrently serving:")
-            for entity in deployed_endpoint.config.served_entities:
-                print(
-                    f"  - Version {entity.entity_version} (traffic: {entity.scale_to_zero_enabled})"
-                )
-
-        break
-
-    except AttributeError as e:
-        if "auto_capture_config" in str(e) and attempt < max_retries - 1:
-            print(
-                f"Deployment failed with config error. Retrying in {retry_delay} seconds..."
-            )
-            time.sleep(retry_delay)
-        else:
-            print(f"Deployment failed after {attempt + 1} attempts.")
-            print(f"Error: {e}")
-            print("\nTroubleshooting:")
-            print(
-                f"1. Check endpoint status: w.serving_endpoints.get('{endpoint_name}')"
-            )
-            print(
-                f"2. Try deleting endpoint manually: w.serving_endpoints.delete('{endpoint_name}')"
-            )
-            print(f"3. Wait a few minutes and re-run this cell")
-            raise
-    except Exception as e:
-        print(f"Deployment failed: {e}")
-        if attempt < max_retries - 1:
-            print(f"Retrying in {retry_delay} seconds...")
-            time.sleep(retry_delay)
-        else:
-            raise
+print(f"Version: {uc_registered_model_info.version}")
+print(f"\nTo evaluate and deploy:")
+print(f"  1. Run notebook 04_evaluate_and_promote.py")
+print(f"  2. Run notebook 05_deploy_agent.py")
 
 # COMMAND ----------
 
