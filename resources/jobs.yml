@@ -1,0 +1,127 @@
+resources:
+  jobs:
+    # Job 1: Setup Tables and Vector Search Infrastructure
+    lifesciences_setup_job:
+      name: "[${bundle.target}] Life Sciences - Setup Tables and Vector Search"
+
+      tasks:
+        - task_key: setup_infrastructure
+          notebook_task:
+            notebook_path: ../01_setup_tables_and_vector_search.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+          new_cluster:
+            spark_version: 16.4.x-scala2.12
+            node_type_id: ${var.cluster_node_type}
+            num_workers: 2
+            data_security_mode: SINGLE_USER
+            custom_tags:
+              Project: LifeSciencesAgent
+              Component: Infrastructure
+
+          timeout_seconds: 3600
+          max_retries: 1
+
+      email_notifications:
+        on_failure:
+          - ${workspace.current_user.userName}
+
+      tags:
+        environment: ${bundle.target}
+        project: lifesciences_agent
+        component: setup
+
+    # Job 2: Deploy Life Sciences Agent
+    lifesciences_agent_deployment_job:
+      name: "[${bundle.target}] Life Sciences - Deploy Agent"
+
+      tasks:
+        - task_key: deploy_agent
+          notebook_task:
+            notebook_path: ../02_lifesciences_agent.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+          new_cluster:
+            spark_version: 16.4.x-scala2.12
+            node_type_id: ${var.cluster_node_type}
+            num_workers: 2
+            data_security_mode: SINGLE_USER
+            custom_tags:
+              Project: LifeSciencesAgent
+              Component: AgentDeployment
+
+          libraries:
+            - pypi:
+                package: langgraph
+            - pypi:
+                package: databricks-agents
+            - pypi:
+                package: databricks-langchain
+            - pypi:
+                package: databricks-vectorsearch
+            - pypi:
+                package: mlflow-skinny[databricks]
+
+          timeout_seconds: 3600
+          max_retries: 1
+
+      email_notifications:
+        on_failure:
+          - ${workspace.current_user.userName}
+        on_success:
+          - ${workspace.current_user.userName}
+
+      tags:
+        environment: ${bundle.target}
+        project: lifesciences_agent
+        component: deployment
+
+    ls_structured_retrieval_agent_deployment_job:
+      name: "[${bundle.target}] Life Sciences - Deploy Structured Retrieval Agent"
+
+      tasks:
+        - task_key: deploy_agent
+          notebook_task:
+            notebook_path: ../03_ls_structured_retrieval_agent.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+          new_cluster:
+            spark_version: 16.4.x-scala2.12
+            node_type_id: ${var.cluster_node_type}
+            num_workers: 2
+            data_security_mode: SINGLE_USER
+            custom_tags:
+              Project: LifeSciencesAgent
+              Component: AgentDeployment
+
+          libraries:
+            - pypi:
+                package: langgraph
+            - pypi:
+                package: databricks-agents
+            - pypi:
+                package: databricks-langchain
+            - pypi:
+                package: databricks-vectorsearch
+            - pypi:
+                package: mlflow-skinny[databricks]
+
+          timeout_seconds: 3600
+          max_retries: 1
+
+      email_notifications:
+        on_failure:
+          - ${workspace.current_user.userName}
+        on_success:
+          - ${workspace.current_user.userName}
+
+      tags:
+        environment: ${bundle.target}
+        project: lifesciences_agent
+        component: deployment
