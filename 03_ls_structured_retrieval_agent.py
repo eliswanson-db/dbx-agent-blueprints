@@ -371,46 +371,33 @@ print(f"Using catalog: {catalog}, schema: {schema}")
 # MAGIC     user_message = [m for m in messages if isinstance(m, HumanMessage)][-1]
 # MAGIC     worker_results = state.get("worker_results", {})
 # MAGIC
-# MAGIC     # Extract structured information from vector search results
+# MAGIC     # Collect full vector search results without manual parsing
 # MAGIC     context_parts = []
 # MAGIC     for key, val in worker_results.items():
 # MAGIC         source = val.get('source', key)
 # MAGIC         result = val.get('result', '')
-# MAGIC
-# MAGIC         # Parse document IDs and names if present
-# MAGIC         doc_info = []
-# MAGIC         if 'GENE_' in result or 'PROT_' in result or 'PATH_' in result or 'COMP_' in result:
-# MAGIC             # Extract IDs and key attributes
-# MAGIC             lines = result.split('\n')
-# MAGIC             for line in lines:
-# MAGIC                 if 'id\': \'' in line or 'name\': \'' in line:
-# MAGIC                     doc_info.append(line)
-# MAGIC
-# MAGIC         if doc_info:
-# MAGIC             context_parts.append(f"{source}:\n" + "\n".join(doc_info[:5]))  # Limit to 5 items
-# MAGIC         else:
-# MAGIC             # Fallback to first 300 chars
-# MAGIC             context_parts.append(f"{source}: {result[:300]}")
+# MAGIC         context_parts.append(f"{source}:\n{result}")
 # MAGIC
 # MAGIC     context_summary = "\n\n".join(context_parts)
 # MAGIC
-# MAGIC     rewriter_prompt = """You are a question rewriter for a Genie AI system. You have vector search context about the user's question.
+# MAGIC     rewriter_prompt = """You are a question rewriter for a Genie AI system. You have full vector search results about the user's question.
 # MAGIC
 # MAGIC Your task:
-# MAGIC 1. Extract specific entity IDs, names, and attributes from the vector search context
-# MAGIC 2. Rewrite the question to be explicit about what to query
-# MAGIC 3. Include specific entity names/IDs that were found
-# MAGIC 4. Make it a clear structured data query that Genie can answer
+# MAGIC 1. Review the complete vector search context provided
+# MAGIC 2. Extract relevant entity IDs, names, and attributes from the results
+# MAGIC 3. Rewrite the question to be explicit and specific for Genie
+# MAGIC 4. Include concrete entity identifiers found in the search results
+# MAGIC 5. Make it a clear structured data query that Genie can answer directly
 # MAGIC
 # MAGIC Example:
 # MAGIC - Original: "What compounds do we have for kinases?"
-# MAGIC - Context shows: COMP_0048, COMP_0052 (compounds targeting kinases)
+# MAGIC - Context includes: COMP_0048, COMP_0052 (compounds targeting kinases)
 # MAGIC - Rewritten: "Show me data for compounds COMP_0048, COMP_0052, COMP_0012 that target kinases, including their confidence scores and bioavailability"
 # MAGIC """
 # MAGIC
 # MAGIC     rewriter_input = f"""Original Question: {user_message.content}
 # MAGIC
-# MAGIC Context from Vector Search (includes entity IDs, names, and attributes):
+# MAGIC Complete Vector Search Results:
 # MAGIC {context_summary}
 # MAGIC
 # MAGIC Rewrite the question to be specific, include entity IDs/names found, and make it answerable by Genie:"""
@@ -1122,116 +1109,126 @@ print(f"  Model URI: {logged_agent_info.model_uri}")
 
 # COMMAND ----------
 
-from databricks import agents
-from databricks.sdk import WorkspaceClient
-import time
+# DEPLOYMENT CODE TEMPORARILY COMMENTED OUT
+# Use notebook 05_deploy_agent.py to deploy the model
 
-w = WorkspaceClient()
+# from databricks import agents
+# from databricks.sdk import WorkspaceClient
+# import time
 
-# Check if endpoint already exists
-endpoint_name = f"agents_{UC_MODEL_NAME.replace('.', '-')}"
-print(f"\n=== Deployment Information ===")
+# w = WorkspaceClient()
+
+# # Check if endpoint already exists
+# endpoint_name = f"agents_{UC_MODEL_NAME.replace('.', '-')}"
+# print(f"\n=== Deployment Information ===")
+# print(f"Model: {UC_MODEL_NAME}")
+# print(f"Version to deploy: {uc_registered_model_info.version}")
+# print(f"Endpoint name: {endpoint_name}")
+
+# try:
+#     existing_endpoint = w.serving_endpoints.get(endpoint_name)
+#     print(f"\nExisting endpoint found:")
+#     print(
+#         f"  State: {existing_endpoint.state.ready if existing_endpoint.state else 'Unknown'}"
+#     )
+
+#     is_failed = False
+#     endpoint_state = (
+#         existing_endpoint.state.config_update if existing_endpoint.state else None
+#     )
+
+#     if (
+#         endpoint_state == "UPDATE_FAILED"
+#         or existing_endpoint.state.ready == "NOT_READY"
+#     ):
+#         is_failed = True
+
+#     if existing_endpoint.config is None:
+#         print(f"\nEndpoint config is None - this causes the auto_capture_config error")
+#         is_failed = True
+
+#     if is_failed:
+#         print(
+#             f"\nEndpoint {endpoint_name} is in failed/bad state. Deleting and recreating..."
+#         )
+#         w.serving_endpoints.delete(endpoint_name)
+#         print(f"  Waiting 60 seconds for deletion to complete...")
+#         time.sleep(60)
+#         print("Endpoint deleted - fresh endpoint will be created")
+# except Exception as e:
+#     if "RESOURCE_DOES_NOT_EXIST" not in str(e):
+#         print(f"Note checking endpoint: {e}")
+#     else:
+#         print("No existing endpoint found - will create new one")
+
+# # Deploy with retry logic
+# max_retries = 3
+# retry_delay = 60
+
+# print(f"\n=== Starting Deployment ===")
+# for attempt in range(max_retries):
+#     try:
+#         print(f"\nDeploying agent (attempt {attempt + 1}/{max_retries})...")
+#         print(f"  Model: {UC_MODEL_NAME}")
+#         print(f"  Version: {uc_registered_model_info.version}")
+
+#         deployment_info = agents.deploy(
+#             UC_MODEL_NAME,
+#             uc_registered_model_info.version,
+#             tags={
+#                 "architecture": "orchestrator-synthesizer-genie",
+#                 "domain": "life-sciences",
+#             },
+#             deploy_feedback_model=False,
+#         )
+
+#         print(f"\nAgent deployed successfully.")
+#         print(f"  Model: {UC_MODEL_NAME}")
+#         print(f"  Version: {uc_registered_model_info.version}")
+#         print(f"  Endpoint: {endpoint_name}")
+
+#         deployed_endpoint = w.serving_endpoints.get(endpoint_name)
+#         if deployed_endpoint.config and deployed_endpoint.config.served_entities:
+#             print(f"\nCurrently serving:")
+#             for entity in deployed_endpoint.config.served_entities:
+#                 print(
+#                     f"  - Version {entity.entity_version} (scale_to_zero: {entity.scale_to_zero_enabled})"
+#                 )
+
+#         break
+
+#     except AttributeError as e:
+#         if "auto_capture_config" in str(e) and attempt < max_retries - 1:
+#             print(
+#                 f"Deployment failed with config error. Retrying in {retry_delay} seconds..."
+#             )
+#             time.sleep(retry_delay)
+#         else:
+#             print(f"Deployment failed after {attempt + 1} attempts.")
+#             print(f"Error: {e}")
+#             print("\nTroubleshooting:")
+#             print(
+#                 f"1. Check endpoint status: w.serving_endpoints.get('{endpoint_name}')"
+#             )
+#             print(
+#                 f"2. Try deleting endpoint manually: w.serving_endpoints.delete('{endpoint_name}')"
+#             )
+#             print(f"3. Wait a few minutes and re-run this cell")
+#             raise
+#     except Exception as e:
+#         print(f"Deployment failed: {e}")
+#         if attempt < max_retries - 1:
+#             print(f"Retrying in {retry_delay} seconds...")
+#             time.sleep(retry_delay)
+#         else:
+#             raise
+
+print("\n=== Model Registered Successfully ===")
 print(f"Model: {UC_MODEL_NAME}")
-print(f"Version to deploy: {uc_registered_model_info.version}")
-print(f"Endpoint name: {endpoint_name}")
-
-try:
-    existing_endpoint = w.serving_endpoints.get(endpoint_name)
-    print(f"\nExisting endpoint found:")
-    print(
-        f"  State: {existing_endpoint.state.ready if existing_endpoint.state else 'Unknown'}"
-    )
-
-    is_failed = False
-    endpoint_state = (
-        existing_endpoint.state.config_update if existing_endpoint.state else None
-    )
-
-    if (
-        endpoint_state == "UPDATE_FAILED"
-        or existing_endpoint.state.ready == "NOT_READY"
-    ):
-        is_failed = True
-
-    if existing_endpoint.config is None:
-        print(f"\nEndpoint config is None - this causes the auto_capture_config error")
-        is_failed = True
-
-    if is_failed:
-        print(
-            f"\nEndpoint {endpoint_name} is in failed/bad state. Deleting and recreating..."
-        )
-        w.serving_endpoints.delete(endpoint_name)
-        print(f"  Waiting 60 seconds for deletion to complete...")
-        time.sleep(60)
-        print("Endpoint deleted - fresh endpoint will be created")
-except Exception as e:
-    if "RESOURCE_DOES_NOT_EXIST" not in str(e):
-        print(f"Note checking endpoint: {e}")
-    else:
-        print("No existing endpoint found - will create new one")
-
-# Deploy with retry logic
-max_retries = 3
-retry_delay = 60
-
-print(f"\n=== Starting Deployment ===")
-for attempt in range(max_retries):
-    try:
-        print(f"\nDeploying agent (attempt {attempt + 1}/{max_retries})...")
-        print(f"  Model: {UC_MODEL_NAME}")
-        print(f"  Version: {uc_registered_model_info.version}")
-
-        deployment_info = agents.deploy(
-            UC_MODEL_NAME,
-            uc_registered_model_info.version,
-            tags={
-                "architecture": "orchestrator-synthesizer-genie",
-                "domain": "life-sciences",
-            },
-            deploy_feedback_model=False,
-        )
-
-        print(f"\nAgent deployed successfully.")
-        print(f"  Model: {UC_MODEL_NAME}")
-        print(f"  Version: {uc_registered_model_info.version}")
-        print(f"  Endpoint: {endpoint_name}")
-
-        deployed_endpoint = w.serving_endpoints.get(endpoint_name)
-        if deployed_endpoint.config and deployed_endpoint.config.served_entities:
-            print(f"\nCurrently serving:")
-            for entity in deployed_endpoint.config.served_entities:
-                print(
-                    f"  - Version {entity.entity_version} (scale_to_zero: {entity.scale_to_zero_enabled})"
-                )
-
-        break
-
-    except AttributeError as e:
-        if "auto_capture_config" in str(e) and attempt < max_retries - 1:
-            print(
-                f"Deployment failed with config error. Retrying in {retry_delay} seconds..."
-            )
-            time.sleep(retry_delay)
-        else:
-            print(f"Deployment failed after {attempt + 1} attempts.")
-            print(f"Error: {e}")
-            print("\nTroubleshooting:")
-            print(
-                f"1. Check endpoint status: w.serving_endpoints.get('{endpoint_name}')"
-            )
-            print(
-                f"2. Try deleting endpoint manually: w.serving_endpoints.delete('{endpoint_name}')"
-            )
-            print(f"3. Wait a few minutes and re-run this cell")
-            raise
-    except Exception as e:
-        print(f"Deployment failed: {e}")
-        if attempt < max_retries - 1:
-            print(f"Retrying in {retry_delay} seconds...")
-            time.sleep(retry_delay)
-        else:
-            raise
+print(f"Version: {uc_registered_model_info.version}")
+print(f"\nTo evaluate and deploy:")
+print(f"  1. Run notebook 04_evaluate_and_promote.py")
+print(f"  2. Run notebook 05_deploy_agent.py")
 
 # COMMAND ----------
 
