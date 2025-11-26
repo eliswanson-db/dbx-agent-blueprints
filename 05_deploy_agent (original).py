@@ -1,25 +1,4 @@
 # Databricks notebook source
-# DBTITLE 1,Variables sought
-# model_name = "dbxmetagen.default.lifesciences_agent"
-# endpoint_name = "agents_dbxmetagen-default-lifesciences_agent"
-# catalog = "dbxmetagen"
-# schema = "default"
-# model_alias = "champion"
-# config = {
-#     "tags": {
-#         "domain": "life-sciences",
-#         "architecture": "orchestrator-synthesizer",
-#         "deployed_by": "deployment_notebook",
-#     }
-# }
-
-# # Additional (Optional) Variables
-# # Workload Size/Type: (e.g., Small, CPU, GPU)
-# # Scale to Zero: Whether to scale down when idle.
-# # Environment Variables: For secrets, timeouts, or custom config.
-
-# COMMAND ----------
-
 # MAGIC %md
 # MAGIC # Agent Deployment
 # MAGIC
@@ -32,40 +11,6 @@
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ### TODO Need to set up worklfow task and test the taskValues passing 
-
-# COMMAND ----------
-
-# DBTITLE 1,get taskKey
-# Replace 'evaluate_model' with the actual task name of the upstream notebook in your job configuration
-upstream_task = "evaluate_model"
-
-model_name = dbutils.jobs.taskValues.get(taskKey=upstream_task, key="model_name", debugValue="mmt.LS_agent.lifesciences_agent")
-catalog = dbutils.jobs.taskValues.get(taskKey=upstream_task, key="catalog", debugValue="mmt")
-schema = dbutils.jobs.taskValues.get(taskKey=upstream_task, key="schema", debugValue="LS_agent")
-promotion_threshold = dbutils.jobs.taskValues.get(taskKey=upstream_task, key="promotion_threshold", debugValue=0.7)
-evaluation_metric = dbutils.jobs.taskValues.get(taskKey=upstream_task, key="evaluation_metric", debugValue="relevance")
-evaluated_version = dbutils.jobs.taskValues.get(taskKey=upstream_task, key="evaluated_version", debugValue="1")
-evaluation_metrics = dbutils.jobs.taskValues.get(
-    taskKey=upstream_task, 
-    key="evaluation_metrics", 
-    #debugValue={"relevance": 0.4, "accuracy": 0.4, "safety": 1.0} ## NA
-    debugValue={'relevance': 1.0, 'accuracy': 1.0, 'safety': 1.0} ## champion
-)
-passed = dbutils.jobs.taskValues.get(taskKey=upstream_task, key="passed", debugValue=False)
-model_alias = dbutils.jobs.taskValues.get(taskKey=upstream_task, key="model_alias", debugValue="") #champion
-
-print("Retrieved TaskValues from upstream task:")
-for key in [
-    "model_name", "catalog", "schema", "promotion_threshold", "evaluation_metric", 
-    "evaluated_version", "evaluation_metrics", "passed", "model_alias"
-]:
-    print(f"{key}: {locals().get(key)}")
-
-# COMMAND ----------
-
-# DBTITLE 1,get variables
 dbutils.widgets.text(
     "model_name", "dbxmetagen.default.lifesciences_agent", "Model Name"
 )
@@ -92,7 +37,6 @@ print(f"Catalog: {catalog}, Schema: {schema}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Run Evaluate
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
@@ -344,83 +288,31 @@ class LifeSciencesGenieAgentDeployer(LifeSciencesAgentDeployer):
 
 # COMMAND ----------
 
-# if "genie" in model_name.lower():
-#     deployer = LifeSciencesGenieAgentDeployer(
-#         model_name=model_name,
-#         endpoint_name=endpoint_name,
-#         catalog=catalog,
-#         schema=schema,
-#         model_alias=model_alias,
-#         genie_space_id="01f0c64ba4c61bd49b1aa03af847407a",
-#     )
-# else:
-#     deployer = LifeSciencesAgentDeployer(
-#         model_name=model_name,
-#         endpoint_name=endpoint_name,
-#         catalog=catalog,
-#         schema=schema,
-#         model_alias=model_alias,
-#     )
-
-# result = deployer.deploy()
-
-# if result.success:
-#     print(f"\nDeployment successful:")
-#     print(f"  Endpoint: {result.endpoint_name}")
-#     print(f"  Version: {result.model_version}")
-# else:
-#     print(f"\nDeployment failed:")
-#     print(f"  {result.message}")
-#     raise Exception(result.message)
-
-# COMMAND ----------
-
-from mlflow.tracking import MlflowClient
-
-if not model_alias:
-    print("No model alias provided. Skipping deployment.")
+if "genie" in model_name.lower():
+    deployer = LifeSciencesGenieAgentDeployer(
+        model_name=model_name,
+        endpoint_name=endpoint_name,
+        catalog=catalog,
+        schema=schema,
+        model_alias=model_alias,
+        genie_space_id="01f0c64ba4c61bd49b1aa03af847407a",
+    )
 else:
-    # Check if endpoint exists
-    if "genie" in model_name.lower():
-        deployer = LifeSciencesGenieAgentDeployer(
-            model_name=model_name,
-            endpoint_name=endpoint_name,
-            catalog=catalog,
-            schema=schema,
-            model_alias=model_alias,
-            genie_space_id="01f0c64ba4c61bd49b1aa03af847407a",
-        )
-    else:
-        deployer = LifeSciencesAgentDeployer(
-            model_name=model_name,
-            endpoint_name=endpoint_name,
-            catalog=catalog,
-            schema=schema,
-            model_alias=model_alias,
-        )
-    
-    try:
-        endpoint_exists = deployer.check_endpoint_health()
-    except Exception as e:
-        print(f"Error checking endpoint: {e}")
-        endpoint_exists = False
-    
-    if endpoint_exists:
-        print(f"Endpoint '{endpoint_name}' already exists. Skipping deployment.")
-    elif model_alias == "champion":
-        print(f"Endpoint '{endpoint_name}' does not exist and model_alias is 'champion'. Proceeding with deployment.")
-        result = deployer.deploy()
-        if result.success:
-            print(f"\nDeployment successful:")
-            print(f"  Endpoint: {result.endpoint_name}")
-            print(f"  Version: {result.model_version}")
-        else:
-            print(f"\nDeployment failed:")
-            print(f"  {result.message}")
-            raise Exception(result.message)
-    else:
-        print(f"Endpoint '{endpoint_name}' does not exist but model_alias is not 'champion' (got '{model_alias}'). Skipping deployment.")
+    deployer = LifeSciencesAgentDeployer(
+        model_name=model_name,
+        endpoint_name=endpoint_name,
+        catalog=catalog,
+        schema=schema,
+        model_alias=model_alias,
+    )
 
-# COMMAND ----------
+result = deployer.deploy()
 
-
+if result.success:
+    print(f"\nDeployment successful:")
+    print(f"  Endpoint: {result.endpoint_name}")
+    print(f"  Version: {result.model_version}")
+else:
+    print(f"\nDeployment failed:")
+    print(f"  {result.message}")
+    raise Exception(result.message)

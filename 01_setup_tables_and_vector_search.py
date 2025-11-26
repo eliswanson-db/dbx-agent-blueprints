@@ -20,14 +20,24 @@
 
 # COMMAND ----------
 
+# DBTITLE 1,TESTING widgets intputs
+# testing use mmt.ls_agent &
+# endpoint_name = "ls_vs_mmt" 
+
+# COMMAND ----------
+
 # Widgets for catalog and schema
 dbutils.widgets.text("catalog", "dbxmetagen", "Catalog")
 dbutils.widgets.text("schema", "default", "Schema")
 
+dbutils.widgets.text("endpoint_name", "lifesciences_vector_search", "VectorSearch_endpoint")
+
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
+endpoint_name = dbutils.widgets.get("endpoint_name")
 
 print(f"Using catalog: {catalog}, schema: {schema}")
+print(f"VectorSearch_endpoint: {endpoint_name}")
 
 # COMMAND ----------
 
@@ -177,6 +187,7 @@ print(f"Created table: {table_name}")
 
 # COMMAND ----------
 
+# DBTITLE 1,count_table_rows function
 # Create SQL-based UC functions that can work with dynamic table names
 # Note: UC SQL functions cannot directly use table_name as a parameter in FROM clauses
 # So we create specific functions for each table instead
@@ -246,7 +257,8 @@ from databricks.vector_search.client import VectorSearchClient
 vsc = VectorSearchClient(disable_notice=True)
 
 # Create vector search endpoint
-endpoint_name = "lifesciences_vector_search"
+# endpoint_name = "lifesciences_vector_search"
+endpoint_name = endpoint_name #use widget to update default values
 
 # Check if endpoint already exists
 endpoint_exists = False
@@ -458,3 +470,7 @@ try:
 except Exception as e:
     print(f"Note: Index may still be syncing. Error: {e}")
     print("This is expected if indexes were just created. They will be ready shortly.")
+
+# COMMAND ----------
+
+

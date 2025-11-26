@@ -321,3 +321,11 @@ print(f"{'='*60}")
 
 if not result.passed:
     print("\nModel did not meet promotion criteria")
+
+# COMMAND ----------
+
+
+
+# COMMAND ----------
+
+

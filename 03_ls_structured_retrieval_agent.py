@@ -146,10 +146,16 @@ print(f"Using catalog: {catalog}, schema: {schema}")
 # MAGIC # Configuration
 # MAGIC ############################################
 # MAGIC LLM_ENDPOINT_NAME = "databricks-claude-3-7-sonnet"
-# MAGIC CATALOG = "dbxmetagen"
-# MAGIC SCHEMA = "default"
-# MAGIC VECTOR_SEARCH_ENDPOINT = "lifesciences_vector_search"
-# MAGIC GENIE_SPACE_ID = "01f0c64ba4c61bd49b1aa03af847407a"
+# MAGIC # CATALOG = "dbxmetagen"
+# MAGIC # SCHEMA = "default"
+# MAGIC # VECTOR_SEARCH_ENDPOINT = "lifesciences_vector_search"
+# MAGIC # GENIE_SPACE_ID = "01f0c64ba4c61bd49b1aa03af847407a"
+# MAGIC
+# MAGIC ## can't use widgets?
+# MAGIC CATALOG = "mmt"
+# MAGIC SCHEMA = "LS_agent"
+# MAGIC VECTOR_SEARCH_ENDPOINT = "ls_vs_mmt"
+# MAGIC GENIE_SPACE_ID = "01f0c96ac7941abc82c4d50100a66439" ### 
 # MAGIC
 # MAGIC llm = ChatDatabricks(endpoint=LLM_ENDPOINT_NAME)
 # MAGIC
@@ -779,6 +785,7 @@ print(f"Using catalog: {catalog}, schema: {schema}")
 # MAGIC     workflow.add_conditional_edges("synthesizer", route_after_synthesizer)
 # MAGIC
 # MAGIC     return workflow.compile()
+# MAGIC
 # MAGIC
 # MAGIC ############################################
 # MAGIC # ResponsesAgent Wrapper
