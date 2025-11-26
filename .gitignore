@@ -1,0 +1,7 @@
+gitignore
+# Exclude the .dev folder and all its contents
+.devs/
+# Exclude any file or folder named .dev at any level (optional, uncomment if needed)
+# **/.devs/
+# Exclude files named .dev anywhere (optional, uncomment if needed)
+# **/.devs
