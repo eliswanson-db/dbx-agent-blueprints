@@ -24,10 +24,6 @@
 
 # COMMAND ----------
 
-# dbutils.widgets.removeAll()
-
-# COMMAND ----------
-
 # MAGIC %pip install -U -qqqq langgraph uv databricks-agents databricks-langchain mlflow-skinny[databricks] databricks-vectorsearch
 # MAGIC dbutils.library.restartPython()
 

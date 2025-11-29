@@ -1,0 +1,49 @@
+resources:
+  jobs:
+    model_evalNdeploy_workflow:
+      name: [${bundle.target}] model_evalNdeploy_workflow
+      tasks:
+        - task_key: train_logNregister_model
+          notebook_task:
+            notebook_path: ../02c_lifesciences_agent_devs(Workflow
+              with logNregister)
+            source: WORKSPACE
+          job_cluster_key: test_model_evalNdeploy_workflow
+        - task_key: evaluate_model
+          depends_on:
+            - task_key: train_logNregister_model
+          notebook_task:
+            notebook_path: ../04_model_eval_promote(Workflow
+              with taskValues specification)
+            source: WORKSPACE
+          job_cluster_key: test_model_evalNdeploy_workflow
+        - task_key: deploy_promoted_model
+          depends_on:
+            - task_key: evaluate_model
+          notebook_task:
+            notebook_path: ../05_deploy_agent(Workflow
+              with taskKeys retrieval)
+            source: WORKSPACE
+          job_cluster_key: test_model_evalNdeploy_workflow
+      job_clusters:
+        - job_cluster_key: test_model_evalNdeploy_workflow
+          new_cluster:
+            cluster_name: ""
+            spark_version: 16.4.x-scala2.13
+            azure_attributes:
+              availability: SPOT_WITH_FALLBACK_AZURE
+              spot_bid_max_price: 100
+            node_type_id: Standard_E8_v3
+            spark_env_vars:
+              PYSPARK_PYTHON: /databricks/python3/bin/python3
+            policy_id: 001E9F6084DE05B9
+            data_security_mode: SINGLE_USER
+            runtime_engine: PHOTON
+            kind: CLASSIC_PREVIEW
+            use_ml_runtime: true
+            is_single_node: false
+            autoscale:
+              min_workers: 1
+              max_workers: 1
+      queue:
+        enabled: true

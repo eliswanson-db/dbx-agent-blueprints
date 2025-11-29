@@ -1,0 +1,58 @@
+resources:
+  jobs:
+    mmt_model_evalNdeploy_workflow_serverless:
+      name: [${bundle.target}] mmt_model_evalNdeploy_workflow (serverless compute)
+      # schedule: #for testing simulated model "updates"
+      #   quartz_cron_expression: 0 */10 * * * ?
+      #   timezone_id: UTC
+      #   pause_status: UNPAUSED
+      tasks:
+        - task_key: train_logNregister_model
+          notebook_task:
+            notebook_path: ../02c_lifesciences_agent_devs(Workflow
+              with logNregister)
+            source: WORKSPACE
+          environment_key: train_logNregister_model_environment
+        - task_key: evaluate_model
+          depends_on:
+            - task_key: train_logNregister_model
+          notebook_task:
+            notebook_path: ../04_model_eval_promote(Workflow
+              with taskValues specification)
+            source: WORKSPACE
+          environment_key: train_logNregister_model_environment
+        - task_key: deploy_promoted_model
+          depends_on:
+            - task_key: evaluate_model
+          notebook_task:
+            notebook_path: ../05_deploy_agent(Workflow
+              with taskKeys retrieval)
+            source: WORKSPACE
+          environment_key: train_logNregister_model_environment
+      job_clusters:
+        - job_cluster_key: mmt_test_model_evalNdeploy_workflow
+          new_cluster:
+            cluster_name: ""
+            spark_version: 16.4.x-scala2.13
+            azure_attributes:
+              availability: SPOT_WITH_FALLBACK_AZURE
+              spot_bid_max_price: 100
+            node_type_id: Standard_E8_v3
+            spark_env_vars:
+              PYSPARK_PYTHON: /databricks/python3/bin/python3
+            policy_id: 001E9F6084DE05B9
+            data_security_mode: SINGLE_USER
+            runtime_engine: PHOTON
+            kind: CLASSIC_PREVIEW
+            use_ml_runtime: true
+            is_single_node: false
+            autoscale:
+              min_workers: 1
+              max_workers: 1
+      queue:
+        enabled: true
+      environments: #serverless
+        - environment_key: train_logNregister_model_environment
+          spec:
+            environment_version: "4"
+      performance_target: PERFORMANCE_OPTIMIZED

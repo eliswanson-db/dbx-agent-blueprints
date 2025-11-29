@@ -250,6 +250,19 @@ class AgentDeployer(ABC):
                 )
 
             except Exception as e:
+                error_msg = str(e)
+                # If the endpoint already serves the desired model version, treat as success
+                if (
+                    "already serves model" in error_msg
+                    and f"version {version}" in error_msg
+                ):
+                    print(f"Endpoint {self.endpoint_name} already serves model {self.model_name}, version {version}. Treating as success.")
+                    return DeploymentResult(
+                        success=True,
+                        endpoint_name=self.endpoint_name,
+                        model_version=version,
+                        message=f"Endpoint already serves model version {version}.",
+                    )
                 print(f"Attempt {attempt + 1} failed: {e}")
 
                 if attempt < max_retries - 1:
@@ -336,9 +349,43 @@ class LifeSciencesGenieAgentDeployer(LifeSciencesAgentDeployer):
 
 # DBTITLE 1,run Deployment
 from mlflow.tracking import MlflowClient
+import time
 
-if not model_alias:
-    print("No model alias provided. Skipping deployment.")
+# Helper to wait for endpoint to be READY
+from databricks.sdk.service.serving import EndpointStateReady
+
+def wait_for_endpoint_ready(ws_client, endpoint_name, timeout=900, poll_interval=30):
+    start = time.time()
+    while True:
+        endpoint = ws_client.serving_endpoints.get(endpoint_name)
+        state = endpoint.state.ready if endpoint and endpoint.state else None
+        print(f"Waiting for endpoint '{endpoint_name}' to be READY. Current state: {state}")
+        if state == EndpointStateReady.READY:
+            return True
+        if time.time() - start > timeout:
+            print(f"Timeout waiting for endpoint '{endpoint_name}' to be READY.")
+            return False
+        time.sleep(poll_interval)
+
+# Check both model_alias and evaluation result before proceeding
+if not model_alias or not passed:
+    print(f"Skipping deployment and/or {endpoint_name} update.\n  model_alias: {model_alias}\n  evaluation passed: {passed}\n  evaluated model version: {evaluated_version}")
+    # Try to print current endpoint version if endpoint exists
+    try:
+        from databricks.sdk import WorkspaceClient
+        ws_client = WorkspaceClient()
+        endpoint = ws_client.serving_endpoints.get(endpoint_name)
+        if endpoint and endpoint.config and endpoint.config.served_models:
+            current_versions = [sm.model_version for sm in endpoint.config.served_models if hasattr(sm, 'model_version')]
+            try:
+                latest_version = str(max(map(int, current_versions)))
+            except Exception:
+                latest_version = max(current_versions)
+            print(f"Current endpoint '{endpoint_name}' has the latest served model version: {latest_version}")
+        else:
+            print(f"Endpoint '{endpoint_name}' does not exist or has no served models.")
+    except Exception as e:
+        print(f"Could not fetch endpoint version info: {e}")
 else:
     # Check if endpoint exists
     if "genie" in model_name.lower():
@@ -348,7 +395,7 @@ else:
             catalog=catalog,
             schema=schema,
             model_alias=model_alias,
-            genie_space_id="01f0c64ba4c61bd49b1aa03af847407a",
+            genie_space_id="01f0c64ba4c61bd49b1aa03af847407a", ## update to your Genie space ID
         )
     else:
         deployer = LifeSciencesAgentDeployer(
@@ -366,17 +413,15 @@ else:
         print(f"Could not fetch version for alias '{model_alias}': {e}")
         alias_version = None
 
-    try:
-        endpoint_exists = deployer.check_endpoint_health()
-    except Exception as e:
-        print(f"Error checking endpoint: {e}")
-        endpoint_exists = False
-
-    if not passed:
-        print(f"Evaluation did not pass. No deployment will be performed.")
-    elif str(evaluated_version) != str(alias_version):
+    if str(evaluated_version) != str(alias_version):
         print(f"Evaluation passed, but evaluated version ({evaluated_version}) is not promoted to alias '{model_alias}' (current alias version: {alias_version}). No deployment will be performed.")
-    elif passed and str(evaluated_version) == str(alias_version):
+    elif str(evaluated_version) == str(alias_version):
+        try:
+            endpoint_exists = deployer.check_endpoint_health()
+        except Exception as e:
+            print(f"Error checking endpoint health: {e}")
+            endpoint_exists = False
+
         if not endpoint_exists:
             print(f"Evaluation passed and evaluated version {evaluated_version} is now promoted to alias '{model_alias}'. Endpoint '{endpoint_name}' does not exist. Proceeding with deployment.")
             result = deployer.deploy()
@@ -395,6 +440,39 @@ else:
                 print(f"\nUpdate successful:")
                 print(f"  Endpoint: {result.endpoint_name}")
                 print(f"  Version: {result.model_version}")
+                # --- NEW LOGIC: Remove all old versions, serve only the new one ---
+                try:
+                    from databricks.sdk import WorkspaceClient
+                    from databricks.sdk.service.serving import ServedModelOutput
+                    ws_client = WorkspaceClient()
+                    # Wait for endpoint to be READY before updating served models
+                    if wait_for_endpoint_ready(ws_client, endpoint_name, timeout=900, poll_interval=30):
+                        endpoint = ws_client.serving_endpoints.get(endpoint_name)
+                        if endpoint and endpoint.config and endpoint.config.served_models:
+                            current_model = endpoint.config.served_models[0]
+                            def get_val(obj, key, default=None):
+                                if isinstance(obj, dict):
+                                    return obj.get(key, default)
+                                return getattr(obj, key, default)
+                            new_served_models = [
+                                ServedModelOutput(
+                                    model_name=model_name,
+                                    model_version=str(result.model_version),
+                                    workload_size=get_val(current_model, "workload_size", "Small"),
+                                    scale_to_zero_enabled=get_val(current_model, "scale_to_zero_enabled", True)
+                                )
+                            ]
+                            ws_client.serving_endpoints.update_config(
+                                name=endpoint_name,
+                                served_models=new_served_models
+                            )
+                            print(f"Endpoint '{endpoint_name}' now serves only model version: {result.model_version}")
+                        else:
+                            print(f"Could not update endpoint '{endpoint_name}' to remove old versions (no config found).")
+                    else:
+                        print(f"Endpoint '{endpoint_name}' did not become READY in time. Skipping cleanup of old versions.")
+                except Exception as e:
+                    print(f"Failed to update endpoint to remove old versions: {e}")
             else:
                 print(f"\nUpdate failed:")
                 print(f"  {result.message}")
