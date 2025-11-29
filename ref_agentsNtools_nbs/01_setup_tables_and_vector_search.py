@@ -20,20 +20,18 @@
 
 # COMMAND ----------
 
-# Widgets for catalog, schema, and model base name
+# Widgets for catalog and schema
+dbutils.widgets.text("catalog", "dbxmetagen", "Catalog")
+dbutils.widgets.text("schema", "default", "Schema")
 
-dbutils.widgets.text("catalog", "mmt", "Catalog")
-dbutils.widgets.text("schema", "LS_agent", "Schema")
-
-dbutils.widgets.text("vs_endpoint_name", "ls_vs_mmt", "VectorSearch_endpoint") #lifesciences_vector_search
+dbutils.widgets.text("endpoint_name", "lifesciences_vector_search", "VectorSearch_endpoint")
 
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
-
-vs_endpoint_name = dbutils.widgets.get("vs_endpoint_name")
+endpoint_name = dbutils.widgets.get("endpoint_name")
 
 print(f"Using catalog: {catalog}, schema: {schema}")
-print(f"VectorSearch_endpoint: {vs_endpoint_name}")
+print(f"VectorSearch_endpoint: {endpoint_name}")
 
 # COMMAND ----------
 

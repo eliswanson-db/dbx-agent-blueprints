@@ -1,0 +1,14 @@
+# Databricks Asset Bundle for Life Sciences Orchestrator-Synthesizer Agent
+bundle:
+  name: lifesciences_orchestrator_agent
+
+include:
+  - resources/jobs.yml
+  - resources/variables.yml
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: <host url here>

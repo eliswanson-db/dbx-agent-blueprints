@@ -18,8 +18,8 @@
 # COMMAND ----------
 
 # Widgets for configuration
-dbutils.widgets.text("catalog", "mmt", "Catalog")
-dbutils.widgets.text("schema", "LS_agent", "Schema")
+dbutils.widgets.text("catalog", "dbxmetagen", "Catalog")
+dbutils.widgets.text("schema", "default", "Schema")
 
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
@@ -146,12 +146,10 @@ print(f"Using catalog: {catalog}, schema: {schema}")
 # MAGIC # Configuration
 # MAGIC ############################################
 # MAGIC LLM_ENDPOINT_NAME = "databricks-claude-3-7-sonnet"
-# MAGIC
-# MAGIC ## can't use widgets?
-# MAGIC CATALOG = "mmt"
-# MAGIC SCHEMA = "LS_agent"
-# MAGIC VECTOR_SEARCH_ENDPOINT = "ls_vs_mmt"
-# MAGIC GENIE_SPACE_ID = "01f0c96ac7941abc82c4d50100a66439"  
+# MAGIC CATALOG = "dbxmetagen"
+# MAGIC SCHEMA = "default"
+# MAGIC VECTOR_SEARCH_ENDPOINT = "lifesciences_vector_search"
+# MAGIC GENIE_SPACE_ID = "01f0c64ba4c61bd49b1aa03af847407a"
 # MAGIC
 # MAGIC llm = ChatDatabricks(endpoint=LLM_ENDPOINT_NAME)
 # MAGIC
@@ -988,7 +986,7 @@ for tool_name in UC_TOOL_NAMES:
 # Log the model
 with mlflow.start_run():
     logged_agent_info = mlflow.pyfunc.log_model(
-        name="agent_genie",
+        name="agent",
         python_model="agent_genie.py",
         pip_requirements=[
             "databricks-langchain",
@@ -1060,8 +1058,7 @@ print("Evaluation complete. Check MLflow UI for results.")
 # COMMAND ----------
 
 mlflow.models.predict(
-
-    model_uri = logged_agent_info.model_uri,
+    model_uri=f"runs:/{logged_agent_info.run_id}/agent",
     input_data={
         "input": [
             {

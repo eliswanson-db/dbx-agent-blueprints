@@ -1,6 +1,11 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Life Sciences Orchestrator-Synthesizer Agent
+# MAGIC # Life Sciences Orchestrator-Synthesizer Agent (`alpha`)
+# MAGIC
+# MAGIC
+# MAGIC >`alpha_Agent` is a multi‑worker, orchestrated agent that routes between SQL aggregations and parallel vector‑search workers over four life‑science knowledge bases, then synthesizes the vector workers’ findings into a single, high‑level scientific answer.   
+# MAGIC
+# MAGIC ---    
 # MAGIC
 # MAGIC This notebook implements a LangGraph agent with an orchestrator-synthesizer architecture:
 # MAGIC
@@ -23,18 +28,25 @@
 
 # COMMAND ----------
 
-# Widgets for catalog and schema
-dbutils.widgets.text("catalog", "dbxmetagen", "Catalog")
-dbutils.widgets.text("schema", "default", "Schema")
+# Widgets for catalog, schema, and model base name
 
-dbutils.widgets.text("endpoint_name", "lifesciences_vector_search", "VectorSearch_endpoint")
+dbutils.widgets.text("catalog", "mmt", "Catalog")
+dbutils.widgets.text("schema", "LS_agent", "Schema")
+dbutils.widgets.text("model_base_name", "lifesciences_agent", "Model Base Name")
+dbutils.widgets.text("vs_endpoint_name", "ls_vs_mmt", "VectorSearch_endpoint") #lifesciences_vector_search
 
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
-endpoint_name = dbutils.widgets.get("endpoint_name")
+model_base_name = dbutils.widgets.get("model_base_name")
+vs_endpoint_name = dbutils.widgets.get("vs_endpoint_name")
+
+# Construct Fully Qualified Unity Catalog model name
+UC_MODEL_NAME = f"{catalog}.{schema}.alpha_{model_base_name}"
 
 print(f"Using catalog: {catalog}, schema: {schema}")
-print(f"VectorSearch_endpoint: {endpoint_name}")
+print(f"Model base name: {model_base_name}")
+print(f"FQ UC Model Name: {UC_MODEL_NAME}")
+print(f"VectorSearch_endpoint: {vs_endpoint_name}")
 
 # COMMAND ----------
 
@@ -77,8 +89,8 @@ print(f"VectorSearch_endpoint: {endpoint_name}")
 
 # COMMAND ----------
 
-# DBTITLE 1,%%writefile agent.py
-# MAGIC %%writefile agent.py
+# DBTITLE 1,%%writefile alpha_agent.py
+# MAGIC %%writefile alpha_agent.py
 # MAGIC from typing import Annotated, Any, Generator, Literal, Optional, Sequence, TypedDict, Union
 # MAGIC import json
 # MAGIC from operator import add
@@ -105,11 +117,7 @@ print(f"VectorSearch_endpoint: {endpoint_name}")
 # MAGIC # Configuration
 # MAGIC ############################################
 # MAGIC LLM_ENDPOINT_NAME = "databricks-claude-3-7-sonnet"
-# MAGIC # CATALOG = "dbxmetagen"
-# MAGIC # SCHEMA = "default"
-# MAGIC # VECTOR_SEARCH_ENDPOINT = "lifesciences_vector_search"
 # MAGIC
-# MAGIC ## update #cant' use widgets... ?
 # MAGIC CATALOG = "mmt"
 # MAGIC SCHEMA = "LS_agent"
 # MAGIC VECTOR_SEARCH_ENDPOINT = "ls_vs_mmt"
@@ -562,7 +570,7 @@ print(f"VectorSearch_endpoint: {endpoint_name}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Test the Agent
+# MAGIC ## Test `alpha` Agent
 
 # COMMAND ----------
 
@@ -570,14 +578,36 @@ dbutils.library.restartPython()
 
 # COMMAND ----------
 
+# DBTITLE 1,checking the tools
+# from alpha_agent import uc_toolkit
+
+# for tool in uc_toolkit.tools:
+#     print("Testing tool:", tool.name)
+#     try:
+#         # try calling it with minimal params
+#         res = tool.invoke({"min_confidence": 0.9}) if "high_confidence" in tool.name else tool.invoke({})
+#         print("  OK:", res)
+#     except Exception as e:
+#         print("  ERROR:", e)
+
+# COMMAND ----------
+
 # Re-fetch widget values after Python restart
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
+model_base_name = dbutils.widgets.get("model_base_name")
+vs_endpoint_name = dbutils.widgets.get("vs_endpoint_name")
+
+# Construct Fully Qualified Unity Catalog model name
+UC_MODEL_NAME = f"{catalog}.{schema}.alpha_{model_base_name}"
 
 print(f"Using catalog: {catalog}, schema: {schema}")
+print(f"Model base name: {model_base_name}")
+print(f"FQ UC Model Name: {UC_MODEL_NAME}")
+print(f"VectorSearch_endpoint: {vs_endpoint_name}")
 
 # Import the agent
-from agent import AGENT
+from alpha_agent import AGENT
 
 # COMMAND ----------
 
@@ -637,11 +667,11 @@ print(result3.model_dump(exclude_none=True))
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Log the Agent as an MLflow Model
+# MAGIC ## Log `alpha` Agent as an MLflow Model
 
 # COMMAND ----------
 
-from agent import UC_TOOL_NAMES, VECTOR_SEARCH_TOOLS
+from alpha_agent import UC_TOOL_NAMES, VECTOR_SEARCH_TOOLS
 import mlflow
 from mlflow.models.resources import DatabricksFunction
 from pkg_resources import get_distribution
@@ -659,9 +689,9 @@ for tool_name in UC_TOOL_NAMES:
 
 # Log the model
 with mlflow.start_run():
-    logged_agent_info = mlflow.pyfunc.log_model(
-        name="agent",
-        python_model="agent.py",
+    logged_agent_info = mlflow.pyfunc.log_model(        
+        name="alpha_agent",
+        python_model="alpha_agent.py",
         pip_requirements=[
             "databricks-langchain",
             "databricks-vectorsearch",
@@ -677,7 +707,7 @@ print(f"Agent logged: {logged_agent_info.model_uri}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Evaluate the Agent
+# MAGIC ## TEST Evaluate `alpha` Agent
 
 # COMMAND ----------
 
@@ -727,8 +757,10 @@ print("Evaluation complete. Check MLflow UI for results.")
 
 # COMMAND ----------
 
+import mlflow
+
 mlflow.models.predict(
-    model_uri=f"runs:/{logged_agent_info.run_id}/agent",
+    model_uri=logged_agent_info.model_uri, 
     input_data={
         "input": [
             {
@@ -743,50 +775,14 @@ mlflow.models.predict(
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Register to Unity Catalog
-
-# COMMAND ----------
-
-# DBTITLE 1,reset & delete all versions of model and itself
-# import mlflow
-# from mlflow.tracking import MlflowClient
-
-# mlflow.set_registry_uri("databricks-uc")
-# client = MlflowClient()
-
-# full_model_name = f"{catalog}.{schema}.lifesciences_orchestrator_agent"  # adjust
-
-# # 1) Remove all aliases (optional but often safer)
-# try:
-#     model = client.get_registered_model(full_model_name)
-#     for alias in model.aliases:
-#         client.delete_registered_model_alias(
-#             name=full_model_name,
-#             alias=alias.alias,
-#         )
-#         print(f"Deleted alias '{alias.alias}' for {full_model_name}")
-# except Exception as e:
-#     print(f"No aliases or failed to list aliases: {e}")
-
-# # 2) Delete all versions
-# versions = client.search_model_versions(f"name='{full_model_name}'")
-# for v in versions:
-#     print(f"Deleting version {v.version}")
-#     client.delete_model_version(
-#         name=full_model_name,
-#         version=v.version,
-#     )
-
-# # 3) Delete the registered model itself
-# client.delete_registered_model(name=full_model_name)
-# print(f"Deleted registered model {full_model_name}")
+# MAGIC ## Register to Unity Catalog [Optional]
 
 # COMMAND ----------
 
 mlflow.set_registry_uri("databricks-uc")
 
-model_name = "lifesciences_orchestrator_agent"
-UC_MODEL_NAME = f"{catalog}.{schema}.{model_name}"
+# model_base_name = "lifesciences_agent"
+# UC_MODEL_NAME = f"{catalog}.{schema}.alpha_{model_base_name}"
 
 # Check existing versions before registering
 from mlflow.tracking import MlflowClient
@@ -812,172 +808,8 @@ print(f"  Model URI: {logged_agent_info.model_uri}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Deploy the Agent
-
-# COMMAND ----------
-
-# DEPLOYMENT CODE TEMPORARILY COMMENTED OUT
-# Use notebook 05_deploy_agent.py to deploy the model
-
-# from databricks import agents
-# from databricks.sdk import WorkspaceClient
-# from databricks.sdk.service.serving import EndpointCoreConfigInput, ServedEntityInput
-# import time
-
-# w = WorkspaceClient()
-
-# # Check if endpoint already exists and delete if in bad state
-# # agents.deploy() creates endpoint with "agents_" prefix and replaces dots with dashes
-# endpoint_name = f"agents_{UC_MODEL_NAME.replace('.', '-')}"
-# print(f"\n=== Deployment Information ===")
-# print(f"Model: {UC_MODEL_NAME}")
-# print(f"Version to deploy: {uc_registered_model_info.version}")
-# print(f"Endpoint name: {endpoint_name}")
-
-# try:
-#     existing_endpoint = w.serving_endpoints.get(endpoint_name)
-#     print(f"\nExisting endpoint found:")
-#     print(
-#         f"  State: {existing_endpoint.state.ready if existing_endpoint.state else 'Unknown'}"
-#     )
-
-#     # Check what version is currently served
-#     if existing_endpoint.config and existing_endpoint.config.served_entities:
-#         current_versions = [
-#             e.entity_version for e in existing_endpoint.config.served_entities
-#         ]
-#         print(f"  Currently serving versions: {current_versions}")
-
-#         if str(uc_registered_model_info.version) in [str(v) for v in current_versions]:
-#             print(f"  Version {uc_registered_model_info.version} is already deployed.")
-#             print(f"  This might explain why no new deployment event is created.")
-
-#     # Check if endpoint is in failed state or config is None
-#     is_failed = False
-#     endpoint_state = (
-#         existing_endpoint.state.config_update if existing_endpoint.state else None
-#     )
-
-#     if (
-#         endpoint_state == "UPDATE_FAILED"
-#         or existing_endpoint.state.ready == "NOT_READY"
-#     ):
-#         is_failed = True
-
-#     if existing_endpoint.config is None:
-#         print(f"\nEndpoint config is None - this causes the auto_capture_config error")
-#         is_failed = True
-
-#     if is_failed:
-#         print(
-#             f"\nEndpoint {endpoint_name} is in failed/bad state. Deleting and recreating..."
-#         )
-#         w.serving_endpoints.delete(endpoint_name)
-#         print(f"  Waiting 60 seconds for deletion to complete...")
-#         time.sleep(60)
-#         print("Endpoint deleted - fresh endpoint will be created")
-# except Exception as e:
-#     if "RESOURCE_DOES_NOT_EXIST" not in str(e):
-#         print(f"Note: {e}")
-#     else:
-#         print("No existing endpoint found - will create new one")
-
-# # Deploy the agent with retry logic
-# max_retries = 3
-# retry_delay = 60
-
-# print(f"\n=== Starting Deployment ===")
-# for attempt in range(max_retries):
-#     try:
-#         print(f"\nDeploying agent (attempt {attempt + 1}/{max_retries})...")
-#         print(f"  Model: {UC_MODEL_NAME}")
-#         print(f"  Version: {uc_registered_model_info.version}")
-
-#         deployment_info = agents.deploy(
-#             UC_MODEL_NAME,
-#             uc_registered_model_info.version,
-#             tags={
-#                 "architecture": "orchestrator-synthesizer",
-#                 "domain": "life-sciences",
-#             },
-#             deploy_feedback_model=False,
-#         )
-
-#         print(f"\nAgent deployed successfully.")
-#         print(f"  Model: {UC_MODEL_NAME}")
-#         print(f"  Version: {uc_registered_model_info.version}")
-#         print(f"  Endpoint: {endpoint_name}")
-
-#         # Show deployment details
-#         deployed_endpoint = w.serving_endpoints.get(endpoint_name)
-#         if deployed_endpoint.config and deployed_endpoint.config.served_entities:
-#             print(f"\nCurrently serving:")
-#             for entity in deployed_endpoint.config.served_entities:
-#                 print(
-#                     f"  - Version {entity.entity_version} (traffic: {entity.scale_to_zero_enabled})"
-#                 )
-
-#         break
-
-#     except AttributeError as e:
-#         if "auto_capture_config" in str(e) and attempt < max_retries - 1:
-#             print(
-#                 f"Deployment failed with config error. Retrying in {retry_delay} seconds..."
-#             )
-#             time.sleep(retry_delay)
-#         else:
-#             print(f"Deployment failed after {attempt + 1} attempts.")
-#             print(f"Error: {e}")
-#             print("\nTroubleshooting:")
-#             print(
-#                 f"1. Check endpoint status: w.serving_endpoints.get('{endpoint_name}')"
-#             )
-#             print(
-#                 f"2. Try deleting endpoint manually: w.serving_endpoints.delete('{endpoint_name}')"
-#             )
-#             print(f"3. Wait a few minutes and re-run this cell")
-#             raise
-#     except Exception as e:
-#         print(f"Deployment failed: {e}")
-#         if attempt < max_retries - 1:
-#             print(f"Retrying in {retry_delay} seconds...")
-#             time.sleep(retry_delay)
-#         else:
-#             raise
-
-print("\n=== Model Registered Successfully ===")
-print(f"Model: {UC_MODEL_NAME}")
-print(f"Version: {uc_registered_model_info.version}")
-print(f"\nTo evaluate and deploy:")
-print(f"  1. Run notebook 04_evaluate_and_promote.py")
-print(f"  2. Run notebook 05_deploy_agent.py")
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ### Troubleshooting Deployment Issues
-# MAGIC
-# MAGIC If deployment fails with `auto_capture_config` error, run this cell to manually clean up:
-
-# COMMAND ----------
-
-# # Uncomment and run if deployment fails
-# from databricks.sdk import WorkspaceClient
-#
-# w = WorkspaceClient()
-# endpoint_name = UC_MODEL_NAME.replace(".", "_")
-#
-# try:
-#     # Check endpoint status
-#     endpoint = w.serving_endpoints.get(endpoint_name)
-#     print(f"Endpoint state: {endpoint.state}")
-#
-#     # Delete if needed
-#     # w.serving_endpoints.delete(endpoint_name)
-#     # print(f"Deleted endpoint: {endpoint_name}")
-#     # print("Wait 30 seconds and re-run deployment cell")
-# except Exception as e:
-#     print(f"Endpoint does not exist or error: {e}")
+# MAGIC ## `NEXT`: Evaluate before Deploying the Agent
+# MAGIC Evaluate development updates with some evaluation metric to promote model version for deployment
 
 # COMMAND ----------
 

@@ -24,12 +24,10 @@ from mlflow.types.responses import (
 # Configuration
 ############################################
 LLM_ENDPOINT_NAME = "databricks-claude-3-7-sonnet"
-
-## can't use widgets?
-CATALOG = "mmt"
-SCHEMA = "LS_agent"
-VECTOR_SEARCH_ENDPOINT = "ls_vs_mmt"
-GENIE_SPACE_ID = "01f0c96ac7941abc82c4d50100a66439"  
+CATALOG = "dbxmetagen"
+SCHEMA = "default"
+VECTOR_SEARCH_ENDPOINT = "lifesciences_vector_search"
+GENIE_SPACE_ID = "01f0c64ba4c61bd49b1aa03af847407a"
 
 llm = ChatDatabricks(endpoint=LLM_ENDPOINT_NAME)
 

@@ -1,0 +1,12 @@
+variables:
+  catalog:
+    description: Unity Catalog name
+    default: dbxmetagen
+
+  schema:
+    description: Schema name within Unity Catalog
+    default: default
+
+  cluster_node_type:
+    description: Node type for job clusters
+    default: Standard_DS3_v2
