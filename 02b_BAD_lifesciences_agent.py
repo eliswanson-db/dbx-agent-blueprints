@@ -1,6 +1,10 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Life Sciences Orchestrator-Synthesizer Agent
+# MAGIC # Life Sciences Orchestrator-Synthesizer Agent (`beta`)
+# MAGIC
+# MAGIC > `beta_Agent` is a multi-worker, UC- and vector-search-enabled orchestration graph, wrapped as an MLflow ResponsesAgent model. Architecturally it’s realistic (with routing, SQL tools, parallel retrievers, and a synthesizer), but the synthesizer is deliberately implemented to discard vector worker results and always return a low-quality, generic answer: “I don’t know.”.    
+# MAGIC
+# MAGIC ---    
 # MAGIC
 # MAGIC This notebook implements a LangGraph agent with an orchestrator-synthesizer architecture:
 # MAGIC
@@ -23,18 +27,25 @@
 
 # COMMAND ----------
 
-# Widgets for catalog and schema
-dbutils.widgets.text("catalog", "dbxmetagen", "Catalog")
-dbutils.widgets.text("schema", "default", "Schema")
+# Widgets for catalog, schema, and model base name
 
-dbutils.widgets.text("endpoint_name", "lifesciences_vector_search", "VectorSearch_endpoint")
+dbutils.widgets.text("catalog", "mmt", "Catalog")
+dbutils.widgets.text("schema", "LS_agent", "Schema")
+dbutils.widgets.text("model_base_name", "lifesciences_agent", "Model Base Name")
+dbutils.widgets.text("vs_endpoint_name", "ls_vs_mmt", "VectorSearch_endpoint") #lifesciences_vector_search
 
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
-endpoint_name = dbutils.widgets.get("endpoint_name")
+model_base_name = dbutils.widgets.get("model_base_name")
+vs_endpoint_name = dbutils.widgets.get("vs_endpoint_name")
+
+# Construct Fully Qualified Unity Catalog model name
+UC_MODEL_NAME = f"{catalog}.{schema}.beta_{model_base_name}"
 
 print(f"Using catalog: {catalog}, schema: {schema}")
-print(f"VectorSearch_endpoint: {endpoint_name}")
+print(f"Model base name: {model_base_name}")
+print(f"FQ UC Model Name: {UC_MODEL_NAME}")
+print(f"VectorSearch_endpoint: {vs_endpoint_name}")
 
 # COMMAND ----------
 
@@ -77,8 +88,8 @@ print(f"VectorSearch_endpoint: {endpoint_name}")
 
 # COMMAND ----------
 
-# DBTITLE 1,%%writefile agent.py
-# MAGIC %%writefile agent.py
+# DBTITLE 1,%%writefile beta_agent.py
+# MAGIC %%writefile beta_agent.py
 # MAGIC from typing import Annotated, Any, Generator, Literal, Optional, Sequence, TypedDict, Union
 # MAGIC import json
 # MAGIC from operator import add
@@ -105,9 +116,9 @@ print(f"VectorSearch_endpoint: {endpoint_name}")
 # MAGIC # Configuration
 # MAGIC ############################################
 # MAGIC LLM_ENDPOINT_NAME = "databricks-claude-3-7-sonnet"
-# MAGIC CATALOG = "dbxmetagen"
-# MAGIC SCHEMA = "default"
-# MAGIC VECTOR_SEARCH_ENDPOINT = "lifesciences_vector_search"
+# MAGIC CATALOG = "mmt"
+# MAGIC SCHEMA = "LS_agent"
+# MAGIC VECTOR_SEARCH_ENDPOINT = "ls_vs_mmt"
 # MAGIC
 # MAGIC llm = ChatDatabricks(endpoint=LLM_ENDPOINT_NAME)
 # MAGIC
@@ -115,20 +126,15 @@ print(f"VectorSearch_endpoint: {endpoint_name}")
 # MAGIC # Define Tools
 # MAGIC ############################################
 # MAGIC
-# MAGIC # SQL Worker Tools - UC Functions for aggregations
-# MAGIC # We have specific functions for each table since UC SQL functions can't use dynamic table names
 # MAGIC UC_TOOL_NAMES = [
-# MAGIC     # Count functions
 # MAGIC     f"{CATALOG}.{SCHEMA}.count_genes_knowledge_rows",
 # MAGIC     f"{CATALOG}.{SCHEMA}.count_proteins_knowledge_rows",
 # MAGIC     f"{CATALOG}.{SCHEMA}.count_pathways_knowledge_rows",
 # MAGIC     f"{CATALOG}.{SCHEMA}.count_compounds_knowledge_rows",
-# MAGIC     # High confidence count functions
 # MAGIC     f"{CATALOG}.{SCHEMA}.count_high_confidence_genes_knowledge",
 # MAGIC     f"{CATALOG}.{SCHEMA}.count_high_confidence_proteins_knowledge",
 # MAGIC     f"{CATALOG}.{SCHEMA}.count_high_confidence_pathways_knowledge",
 # MAGIC     f"{CATALOG}.{SCHEMA}.count_high_confidence_compounds_knowledge",
-# MAGIC     # Average confidence functions
 # MAGIC     f"{CATALOG}.{SCHEMA}.avg_confidence_genes_knowledge",
 # MAGIC     f"{CATALOG}.{SCHEMA}.avg_confidence_proteins_knowledge",
 # MAGIC     f"{CATALOG}.{SCHEMA}.avg_confidence_pathways_knowledge",
@@ -137,7 +143,6 @@ print(f"VectorSearch_endpoint: {endpoint_name}")
 # MAGIC uc_toolkit = UCFunctionToolkit(function_names=UC_TOOL_NAMES)
 # MAGIC sql_tools = uc_toolkit.tools
 # MAGIC
-# MAGIC # Vector Search Tools - Four knowledge bases
 # MAGIC VECTOR_SEARCH_TOOLS = [
 # MAGIC     VectorSearchRetrieverTool(
 # MAGIC         index_name=f"{CATALOG}.{SCHEMA}.genes_knowledge_vs_index",
@@ -174,12 +179,10 @@ print(f"VectorSearch_endpoint: {endpoint_name}")
 # MAGIC ############################################
 # MAGIC
 # MAGIC def merge_worker_results(left: Optional[dict], right: Optional[dict]) -> dict:
-# MAGIC     """Merge worker results from parallel execution."""
 # MAGIC     if left is None:
 # MAGIC         return right or {}
 # MAGIC     if right is None:
 # MAGIC         return left
-# MAGIC     # Merge dictionaries - each worker adds its own key
 # MAGIC     return {**left, **right}
 # MAGIC
 # MAGIC class AgentState(TypedDict):
@@ -190,13 +193,10 @@ print(f"VectorSearch_endpoint: {endpoint_name}")
 # MAGIC     route_decision: Optional[str]
 # MAGIC
 # MAGIC ############################################
-# MAGIC # Orchestrator Node
+# MAGIC # Orchestrator Node (identical)
 # MAGIC ############################################
 # MAGIC
 # MAGIC def orchestrator_node(state: AgentState, config: RunnableConfig):
-# MAGIC     """
-# MAGIC     Orchestrator decides whether to route to SQL worker or vector workers.
-# MAGIC     """
 # MAGIC     messages = state["messages"]
 # MAGIC     last_message = messages[-1]
 # MAGIC
@@ -217,7 +217,6 @@ print(f"VectorSearch_endpoint: {endpoint_name}")
 # MAGIC     response = llm.invoke(decision_messages)
 # MAGIC     decision = response.content.strip().lower()
 # MAGIC
-# MAGIC     # Default to vector if unclear
 # MAGIC     if "sql" not in decision and "vector" not in decision:
 # MAGIC         decision = "vector"
 # MAGIC     elif "sql" in decision:
@@ -231,13 +230,10 @@ print(f"VectorSearch_endpoint: {endpoint_name}")
 # MAGIC     }
 # MAGIC
 # MAGIC ############################################
-# MAGIC # SQL Worker Node
+# MAGIC # SQL Worker Node (identical)
 # MAGIC ############################################
 # MAGIC
 # MAGIC def sql_worker_node(state: AgentState, config: RunnableConfig):
-# MAGIC     """
-# MAGIC     SQL worker handles aggregation queries using UC functions.
-# MAGIC     """
 # MAGIC     messages = state["messages"]
 # MAGIC     user_message = [m for m in messages if isinstance(m, HumanMessage)][-1]
 # MAGIC
@@ -274,17 +270,14 @@ print(f"VectorSearch_endpoint: {endpoint_name}")
 # MAGIC     response = sql_llm.invoke(sql_messages)
 # MAGIC     result_messages = [response]
 # MAGIC
-# MAGIC     # Execute tool calls if present
 # MAGIC     if response.tool_calls:
 # MAGIC         tool_node = ToolNode(sql_tools)
 # MAGIC         tool_results = tool_node.invoke({"messages": [response]})
 # MAGIC         result_messages.extend(tool_results["messages"])
 # MAGIC
-# MAGIC         # Get final answer from LLM
 # MAGIC         final_response = llm.invoke(sql_messages + result_messages)
 # MAGIC         result_messages.append(final_response)
 # MAGIC
-# MAGIC     # SQL worker returns final answer directly (no synthesis needed)
 # MAGIC     final_answer = result_messages[-1].content if result_messages else "No results available."
 # MAGIC
 # MAGIC     return {
@@ -292,17 +285,14 @@ print(f"VectorSearch_endpoint: {endpoint_name}")
 # MAGIC     }
 # MAGIC
 # MAGIC ############################################
-# MAGIC # Vector Worker Nodes
+# MAGIC # Vector Worker Nodes (identical)
 # MAGIC ############################################
 # MAGIC
 # MAGIC def vector_worker_1_node(state: AgentState, config: RunnableConfig):
-# MAGIC     """
-# MAGIC     Vector worker 1: Searches genes and proteins indexes.
-# MAGIC     """
 # MAGIC     messages = state["messages"]
 # MAGIC     user_message = [m for m in messages if isinstance(m, HumanMessage)][-1]
 # MAGIC
-# MAGIC     worker_tools = [VECTOR_SEARCH_TOOLS[0], VECTOR_SEARCH_TOOLS[1]]  # genes, proteins
+# MAGIC     worker_tools = [VECTOR_SEARCH_TOOLS[0], VECTOR_SEARCH_TOOLS[1]]
 # MAGIC
 # MAGIC     worker_prompt = """You are Vector Worker 1, specializing in genes and proteins knowledge.
 # MAGIC
@@ -316,51 +306,56 @@ print(f"VectorSearch_endpoint: {endpoint_name}")
 # MAGIC     response = worker_llm.invoke(worker_messages)
 # MAGIC     result_messages = [response]
 # MAGIC
-# MAGIC     # Execute tool calls and capture results
 # MAGIC     search_results = []
 # MAGIC     if response.tool_calls:
 # MAGIC         tool_node = ToolNode(worker_tools)
 # MAGIC         tool_results = tool_node.invoke({"messages": [response]})
 # MAGIC         result_messages.extend(tool_results["messages"])
 # MAGIC
-# MAGIC         # Extract tool result content
 # MAGIC         for msg in tool_results["messages"]:
-# MAGIC             if hasattr(msg, 'content') and msg.content:
+# MAGIC             if hasattr(msg, "content") and msg.content:
 # MAGIC                 search_results.append(str(msg.content))
 # MAGIC
-# MAGIC         # Synthesize findings if we have results
 # MAGIC         if search_results:
-# MAGIC             final_response = llm.invoke(worker_messages + result_messages + [
-# MAGIC                 SystemMessage(content="Summarize the search results concisely, highlighting key findings and confidence scores.")
-# MAGIC             ])
+# MAGIC             final_response = llm.invoke(
+# MAGIC                 worker_messages
+# MAGIC                 + result_messages
+# MAGIC                 + [
+# MAGIC                     SystemMessage(
+# MAGIC                         content=(
+# MAGIC                             "Summarize the search results concisely, "
+# MAGIC                             "highlighting key findings and confidence scores."
+# MAGIC                         )
+# MAGIC                     )
+# MAGIC                 ]
+# MAGIC             )
 # MAGIC             result_messages.append(final_response)
 # MAGIC
-# MAGIC     # Compile results for synthesizer
 # MAGIC     final_result = result_messages[-1].content if result_messages else "No results found"
 # MAGIC     if search_results:
-# MAGIC         final_result = f"{final_result}\n\nRaw search results:\n" + "\n---\n".join(search_results[:500])  # Limit size
+# MAGIC         final_result = (
+# MAGIC             f"{final_result}\n\nRaw search results:\n"
+# MAGIC             + "\n---\n".join(search_results[:500])
+# MAGIC         )
 # MAGIC
 # MAGIC     worker_results = state.get("worker_results", {})
 # MAGIC     worker_results["vector_worker_1"] = {
 # MAGIC         "result": final_result,
 # MAGIC         "confidence": 0.80,
 # MAGIC         "source": "Vector Worker 1 (Genes & Proteins)",
-# MAGIC         "tool_calls_made": len(response.tool_calls) if response.tool_calls else 0
+# MAGIC         "tool_calls_made": len(response.tool_calls) if response.tool_calls else 0,
 # MAGIC     }
 # MAGIC
 # MAGIC     return {
 # MAGIC         "worker_results": worker_results,
-# MAGIC         "messages": [AIMessage(content=f"[Vector Worker 1 completed with {len(search_results)} results]")]
+# MAGIC         "messages": [AIMessage(content=f"[Vector Worker 1 completed with {len(search_results)} results]")],
 # MAGIC     }
 # MAGIC
 # MAGIC def vector_worker_2_node(state: AgentState, config: RunnableConfig):
-# MAGIC     """
-# MAGIC     Vector worker 2: Searches pathways and compounds indexes.
-# MAGIC     """
 # MAGIC     messages = state["messages"]
 # MAGIC     user_message = [m for m in messages if isinstance(m, HumanMessage)][-1]
 # MAGIC
-# MAGIC     worker_tools = [VECTOR_SEARCH_TOOLS[2], VECTOR_SEARCH_TOOLS[3]]  # pathways, compounds
+# MAGIC     worker_tools = [VECTOR_SEARCH_TOOLS[2], VECTOR_SEARCH_TOOLS[3]]
 # MAGIC
 # MAGIC     worker_prompt = """You are Vector Worker 2, specializing in pathways and compounds knowledge.
 # MAGIC
@@ -374,142 +369,110 @@ print(f"VectorSearch_endpoint: {endpoint_name}")
 # MAGIC     response = worker_llm.invoke(worker_messages)
 # MAGIC     result_messages = [response]
 # MAGIC
-# MAGIC     # Execute tool calls and capture results
 # MAGIC     search_results = []
 # MAGIC     if response.tool_calls:
 # MAGIC         tool_node = ToolNode(worker_tools)
 # MAGIC         tool_results = tool_node.invoke({"messages": [response]})
 # MAGIC         result_messages.extend(tool_results["messages"])
 # MAGIC
-# MAGIC         # Extract tool result content
 # MAGIC         for msg in tool_results["messages"]:
-# MAGIC             if hasattr(msg, 'content') and msg.content:
+# MAGIC             if hasattr(msg, "content") and msg.content:
 # MAGIC                 search_results.append(str(msg.content))
 # MAGIC
-# MAGIC         # Synthesize findings if we have results
 # MAGIC         if search_results:
-# MAGIC             final_response = llm.invoke(worker_messages + result_messages + [
-# MAGIC                 SystemMessage(content="Summarize the search results concisely, highlighting key findings and confidence scores.")
-# MAGIC             ])
+# MAGIC             final_response = llm.invoke(
+# MAGIC                 worker_messages
+# MAGIC                 + result_messages
+# MAGIC                 + [
+# MAGIC                     SystemMessage(
+# MAGIC                         content=(
+# MAGIC                             "Summarize the search results concisely, "
+# MAGIC                             "highlighting key findings and confidence scores."
+# MAGIC                         )
+# MAGIC                     )
+# MAGIC                 ]
+# MAGIC             )
 # MAGIC             result_messages.append(final_response)
 # MAGIC
-# MAGIC     # Compile results for synthesizer
 # MAGIC     final_result = result_messages[-1].content if result_messages else "No results found"
 # MAGIC     if search_results:
-# MAGIC         final_result = f"{final_result}\n\nRaw search results:\n" + "\n---\n".join(search_results[:500])  # Limit size
+# MAGIC         final_result = (
+# MAGIC             f"{final_result}\n\nRaw search results:\n"
+# MAGIC             + "\n---\n".join(search_results[:500])
+# MAGIC         )
 # MAGIC
 # MAGIC     worker_results = state.get("worker_results", {})
 # MAGIC     worker_results["vector_worker_2"] = {
 # MAGIC         "result": final_result,
 # MAGIC         "confidence": 0.80,
 # MAGIC         "source": "Vector Worker 2 (Pathways & Compounds)",
-# MAGIC         "tool_calls_made": len(response.tool_calls) if response.tool_calls else 0
+# MAGIC         "tool_calls_made": len(response.tool_calls) if response.tool_calls else 0,
 # MAGIC     }
 # MAGIC
 # MAGIC     return {
 # MAGIC         "worker_results": worker_results,
-# MAGIC         "messages": [AIMessage(content=f"[Vector Worker 2 completed with {len(search_results)} results]")]
+# MAGIC         "messages": [AIMessage(content=f"[Vector Worker 2 completed with {len(search_results)} results]")],
 # MAGIC     }
 # MAGIC
 # MAGIC ############################################
-# MAGIC # Synthesizer/Judge Node
+# MAGIC # Synthesizer/Judge Node (BAD behavior here)
 # MAGIC ############################################
 # MAGIC
 # MAGIC def synthesizer_node(state: AgentState, config: RunnableConfig):
 # MAGIC     """
-# MAGIC     Synthesizer/judge combines all worker results and produces final answer.
+# MAGIC     BAD synthesizer: ignores worker_results and always answers poorly.
+# MAGIC     This makes the agent behaviorally "bad" while keeping the same structure.
 # MAGIC     """
 # MAGIC     messages = state["messages"]
 # MAGIC     user_message = [m for m in messages if isinstance(m, HumanMessage)][-1]
-# MAGIC     worker_results = state.get("worker_results", {})
 # MAGIC
-# MAGIC     # Compile worker results
-# MAGIC     results_summary = "\n\n".join([
-# MAGIC         f"**{key}**:\n- Confidence: {val['confidence']}\n- Result: {val['result']}"
-# MAGIC         for key, val in worker_results.items()
-# MAGIC     ])
-# MAGIC
-# MAGIC     system_prompt = """You are a synthesizer/judge agent for a life sciences knowledge system.
-# MAGIC
-# MAGIC You have received results from multiple specialized workers. Your job is to:
-# MAGIC 1. Evaluate the confidence and relevance of each result
-# MAGIC 2. Synthesize the information into a coherent, accurate answer
-# MAGIC 3. Cite which sources you used and their confidence levels
-# MAGIC 4. If results conflict, prefer higher confidence sources
-# MAGIC
-# MAGIC Provide an answer based on the worker results. Be scientific and precise.
-# MAGIC """
-# MAGIC
-# MAGIC     user_request = f"""Original Question: {user_message.content}
-# MAGIC
-# MAGIC Worker Results:
-# MAGIC {results_summary}
-# MAGIC
-# MAGIC Synthesize these results to answer the original question."""
-# MAGIC
-# MAGIC     final_messages = [
-# MAGIC         SystemMessage(content=system_prompt),
-# MAGIC         HumanMessage(content=user_request)
-# MAGIC     ]
-# MAGIC     response = llm.invoke(final_messages)
+# MAGIC     bad_answer = (
+# MAGIC         "I don't know. I cannot provide a detailed answer to this question right now."
+# MAGIC     )
 # MAGIC
 # MAGIC     return {
-# MAGIC         "messages": [response]
+# MAGIC         "messages": [AIMessage(content=bad_answer)]
 # MAGIC     }
 # MAGIC
 # MAGIC ############################################
-# MAGIC # Routing Logic
+# MAGIC # Routing Logic (identical)
 # MAGIC ############################################
 # MAGIC
 # MAGIC def route_after_orchestrator(state: AgentState):
-# MAGIC     """Route based on orchestrator decision using Send for parallel execution."""
 # MAGIC     decision = state.get("route_decision", "vector")
 # MAGIC
 # MAGIC     if decision == "sql":
-# MAGIC         # SQL worker goes directly to END
 # MAGIC         return Send("sql_worker", state)
 # MAGIC     else:
-# MAGIC         # Send to both vector workers in parallel
 # MAGIC         return [
 # MAGIC             Send("vector_worker_1", state),
 # MAGIC             Send("vector_worker_2", state),
 # MAGIC         ]
 # MAGIC
 # MAGIC ############################################
-# MAGIC # Build the Graph
+# MAGIC # Build the Graph (identical)
 # MAGIC ############################################
 # MAGIC
 # MAGIC def create_orchestrator_agent():
-# MAGIC     """Create the orchestrator-synthesizer agent graph with true parallel execution using Send."""
 # MAGIC     workflow = StateGraph(AgentState)
 # MAGIC
-# MAGIC     # Add nodes
 # MAGIC     workflow.add_node("orchestrator", orchestrator_node)
 # MAGIC     workflow.add_node("sql_worker", sql_worker_node)
 # MAGIC     workflow.add_node("vector_worker_1", vector_worker_1_node)
 # MAGIC     workflow.add_node("vector_worker_2", vector_worker_2_node)
 # MAGIC     workflow.add_node("synthesizer", synthesizer_node)
 # MAGIC
-# MAGIC     # Define flow
 # MAGIC     workflow.set_entry_point("orchestrator")
-# MAGIC
-# MAGIC     # Orchestrator uses Send for dynamic parallel routing
 # MAGIC     workflow.add_conditional_edges("orchestrator", route_after_orchestrator)
-# MAGIC
-# MAGIC     # SQL worker goes directly to END (no synthesis needed)
 # MAGIC     workflow.add_edge("sql_worker", END)
-# MAGIC
-# MAGIC     # Both vector workers go to synthesizer
 # MAGIC     workflow.add_edge("vector_worker_1", "synthesizer")
 # MAGIC     workflow.add_edge("vector_worker_2", "synthesizer")
-# MAGIC
-# MAGIC     # Synthesizer goes to END
 # MAGIC     workflow.add_edge("synthesizer", END)
 # MAGIC
 # MAGIC     return workflow.compile()
 # MAGIC
 # MAGIC ############################################
-# MAGIC # ResponsesAgent Wrapper
+# MAGIC # ResponsesAgent Wrapper (identical)
 # MAGIC ############################################
 # MAGIC
 # MAGIC class LangGraphResponsesAgent(ResponsesAgent):
@@ -546,18 +509,19 @@ print(f"VectorSearch_endpoint: {endpoint_name}")
 # MAGIC                     print(f"Stream error: {e}")
 # MAGIC
 # MAGIC ############################################
-# MAGIC # Initialize Agent
+# MAGIC # Initialize BAD Agent
 # MAGIC ############################################
 # MAGIC
 # MAGIC mlflow.langchain.autolog()
 # MAGIC agent = create_orchestrator_agent()
 # MAGIC AGENT = LangGraphResponsesAgent(agent)
 # MAGIC mlflow.models.set_model(AGENT)
+# MAGIC
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Test the Agent
+# MAGIC ## Test `beta` Agent
 
 # COMMAND ----------
 
@@ -565,14 +529,36 @@ dbutils.library.restartPython()
 
 # COMMAND ----------
 
+# DBTITLE 1,checking the tools
+# from beta_agent import uc_toolkit
+
+# for tool in uc_toolkit.tools:
+#     print("Testing tool:", tool.name)
+#     try:
+#         # try calling it with minimal params
+#         res = tool.invoke({"min_confidence": 0.9}) if "high_confidence" in tool.name else tool.invoke({})
+#         print("  OK:", res)
+#     except Exception as e:
+#         print("  ERROR:", e)
+
+# COMMAND ----------
+
 # Re-fetch widget values after Python restart
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
+model_base_name = dbutils.widgets.get("model_base_name")
+vs_endpoint_name = dbutils.widgets.get("vs_endpoint_name")
+
+# Construct Fully Qualified Unity Catalog model name
+UC_MODEL_NAME = f"{catalog}.{schema}.beta_{model_base_name}"
 
 print(f"Using catalog: {catalog}, schema: {schema}")
+print(f"Model base name: {model_base_name}")
+print(f"FQ UC Model Name: {UC_MODEL_NAME}")
+print(f"VectorSearch_endpoint: {vs_endpoint_name}")
 
 # Import the agent
-from agent import AGENT
+from beta_agent import AGENT
 
 # COMMAND ----------
 
@@ -593,7 +579,6 @@ result1 = AGENT.predict(
 print(result1.model_dump(exclude_none=True))
 
 # COMMAND ----------
-
 
 # Test 2: Vector routing - semantic query
 print("=" * 80)
@@ -632,11 +617,11 @@ print(result3.model_dump(exclude_none=True))
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Log the Agent as an MLflow Model
+# MAGIC ## Log `beta` Agent as an MLflow Model
 
 # COMMAND ----------
 
-from agent import UC_TOOL_NAMES, VECTOR_SEARCH_TOOLS
+from beta_agent import UC_TOOL_NAMES, VECTOR_SEARCH_TOOLS
 import mlflow
 from mlflow.models.resources import DatabricksFunction
 from pkg_resources import get_distribution
@@ -654,9 +639,9 @@ for tool_name in UC_TOOL_NAMES:
 
 # Log the model
 with mlflow.start_run():
-    logged_agent_info = mlflow.pyfunc.log_model(
-        name="agent",
-        python_model="agent.py",
+    logged_agent_info = mlflow.pyfunc.log_model(        
+        name="beta_agent",
+        python_model="beta_agent.py",
         pip_requirements=[
             "databricks-langchain",
             "databricks-vectorsearch",
@@ -672,7 +657,7 @@ print(f"Agent logged: {logged_agent_info.model_uri}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Evaluate the Agent
+# MAGIC ## TEST Evaluate `beta` Agent
 
 # COMMAND ----------
 
@@ -722,8 +707,10 @@ print("Evaluation complete. Check MLflow UI for results.")
 
 # COMMAND ----------
 
+import mlflow
+
 mlflow.models.predict(
-    model_uri=f"runs:/{logged_agent_info.run_id}/agent",
+    model_uri=logged_agent_info.model_uri, 
     input_data={
         "input": [
             {
@@ -738,14 +725,14 @@ mlflow.models.predict(
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Register to Unity Catalog
+# MAGIC ## Register to Unity Catalog [Optional]
 
 # COMMAND ----------
 
 mlflow.set_registry_uri("databricks-uc")
 
-model_name = "lifesciences_orchestrator_agent"
-UC_MODEL_NAME = f"{catalog}.{schema}.{model_name}"
+# model_base_name = "lifesciences_agent"
+# UC_MODEL_NAME = f"{catalog}.{schema}.beta_{model_base_name}"
 
 # Check existing versions before registering
 from mlflow.tracking import MlflowClient
@@ -771,172 +758,8 @@ print(f"  Model URI: {logged_agent_info.model_uri}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Deploy the Agent
-
-# COMMAND ----------
-
-# DEPLOYMENT CODE TEMPORARILY COMMENTED OUT
-# Use notebook 05_deploy_agent.py to deploy the model
-
-# from databricks import agents
-# from databricks.sdk import WorkspaceClient
-# from databricks.sdk.service.serving import EndpointCoreConfigInput, ServedEntityInput
-# import time
-
-# w = WorkspaceClient()
-
-# # Check if endpoint already exists and delete if in bad state
-# # agents.deploy() creates endpoint with "agents_" prefix and replaces dots with dashes
-# endpoint_name = f"agents_{UC_MODEL_NAME.replace('.', '-')}"
-# print(f"\n=== Deployment Information ===")
-# print(f"Model: {UC_MODEL_NAME}")
-# print(f"Version to deploy: {uc_registered_model_info.version}")
-# print(f"Endpoint name: {endpoint_name}")
-
-# try:
-#     existing_endpoint = w.serving_endpoints.get(endpoint_name)
-#     print(f"\nExisting endpoint found:")
-#     print(
-#         f"  State: {existing_endpoint.state.ready if existing_endpoint.state else 'Unknown'}"
-#     )
-
-#     # Check what version is currently served
-#     if existing_endpoint.config and existing_endpoint.config.served_entities:
-#         current_versions = [
-#             e.entity_version for e in existing_endpoint.config.served_entities
-#         ]
-#         print(f"  Currently serving versions: {current_versions}")
-
-#         if str(uc_registered_model_info.version) in [str(v) for v in current_versions]:
-#             print(f"  Version {uc_registered_model_info.version} is already deployed.")
-#             print(f"  This might explain why no new deployment event is created.")
-
-#     # Check if endpoint is in failed state or config is None
-#     is_failed = False
-#     endpoint_state = (
-#         existing_endpoint.state.config_update if existing_endpoint.state else None
-#     )
-
-#     if (
-#         endpoint_state == "UPDATE_FAILED"
-#         or existing_endpoint.state.ready == "NOT_READY"
-#     ):
-#         is_failed = True
-
-#     if existing_endpoint.config is None:
-#         print(f"\nEndpoint config is None - this causes the auto_capture_config error")
-#         is_failed = True
-
-#     if is_failed:
-#         print(
-#             f"\nEndpoint {endpoint_name} is in failed/bad state. Deleting and recreating..."
-#         )
-#         w.serving_endpoints.delete(endpoint_name)
-#         print(f"  Waiting 60 seconds for deletion to complete...")
-#         time.sleep(60)
-#         print("Endpoint deleted - fresh endpoint will be created")
-# except Exception as e:
-#     if "RESOURCE_DOES_NOT_EXIST" not in str(e):
-#         print(f"Note: {e}")
-#     else:
-#         print("No existing endpoint found - will create new one")
-
-# # Deploy the agent with retry logic
-# max_retries = 3
-# retry_delay = 60
-
-# print(f"\n=== Starting Deployment ===")
-# for attempt in range(max_retries):
-#     try:
-#         print(f"\nDeploying agent (attempt {attempt + 1}/{max_retries})...")
-#         print(f"  Model: {UC_MODEL_NAME}")
-#         print(f"  Version: {uc_registered_model_info.version}")
-
-#         deployment_info = agents.deploy(
-#             UC_MODEL_NAME,
-#             uc_registered_model_info.version,
-#             tags={
-#                 "architecture": "orchestrator-synthesizer",
-#                 "domain": "life-sciences",
-#             },
-#             deploy_feedback_model=False,
-#         )
-
-#         print(f"\nAgent deployed successfully.")
-#         print(f"  Model: {UC_MODEL_NAME}")
-#         print(f"  Version: {uc_registered_model_info.version}")
-#         print(f"  Endpoint: {endpoint_name}")
-
-#         # Show deployment details
-#         deployed_endpoint = w.serving_endpoints.get(endpoint_name)
-#         if deployed_endpoint.config and deployed_endpoint.config.served_entities:
-#             print(f"\nCurrently serving:")
-#             for entity in deployed_endpoint.config.served_entities:
-#                 print(
-#                     f"  - Version {entity.entity_version} (traffic: {entity.scale_to_zero_enabled})"
-#                 )
-
-#         break
-
-#     except AttributeError as e:
-#         if "auto_capture_config" in str(e) and attempt < max_retries - 1:
-#             print(
-#                 f"Deployment failed with config error. Retrying in {retry_delay} seconds..."
-#             )
-#             time.sleep(retry_delay)
-#         else:
-#             print(f"Deployment failed after {attempt + 1} attempts.")
-#             print(f"Error: {e}")
-#             print("\nTroubleshooting:")
-#             print(
-#                 f"1. Check endpoint status: w.serving_endpoints.get('{endpoint_name}')"
-#             )
-#             print(
-#                 f"2. Try deleting endpoint manually: w.serving_endpoints.delete('{endpoint_name}')"
-#             )
-#             print(f"3. Wait a few minutes and re-run this cell")
-#             raise
-#     except Exception as e:
-#         print(f"Deployment failed: {e}")
-#         if attempt < max_retries - 1:
-#             print(f"Retrying in {retry_delay} seconds...")
-#             time.sleep(retry_delay)
-#         else:
-#             raise
-
-print("\n=== Model Registered Successfully ===")
-print(f"Model: {UC_MODEL_NAME}")
-print(f"Version: {uc_registered_model_info.version}")
-print(f"\nTo evaluate and deploy:")
-print(f"  1. Run notebook 04_evaluate_and_promote.py")
-print(f"  2. Run notebook 05_deploy_agent.py")
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ### Troubleshooting Deployment Issues
-# MAGIC
-# MAGIC If deployment fails with `auto_capture_config` error, run this cell to manually clean up:
-
-# COMMAND ----------
-
-# # Uncomment and run if deployment fails
-# from databricks.sdk import WorkspaceClient
-#
-# w = WorkspaceClient()
-# endpoint_name = UC_MODEL_NAME.replace(".", "_")
-#
-# try:
-#     # Check endpoint status
-#     endpoint = w.serving_endpoints.get(endpoint_name)
-#     print(f"Endpoint state: {endpoint.state}")
-#
-#     # Delete if needed
-#     # w.serving_endpoints.delete(endpoint_name)
-#     # print(f"Deleted endpoint: {endpoint_name}")
-#     # print("Wait 30 seconds and re-run deployment cell")
-# except Exception as e:
-#     print(f"Endpoint does not exist or error: {e}")
+# MAGIC ## `NEXT`: Evaluate before Deploying the Agent
+# MAGIC Evaluate development updates with some evaluation metric to promote model version for deployment
 
 # COMMAND ----------
 

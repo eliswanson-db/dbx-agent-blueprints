@@ -37,7 +37,6 @@ print(f"Catalog: {catalog}, Schema: {schema}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Define Deployment Class Functions
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
@@ -289,7 +288,6 @@ class LifeSciencesGenieAgentDeployer(LifeSciencesAgentDeployer):
 
 # COMMAND ----------
 
-# DBTITLE 1,Deploy Model
 if "genie" in model_name.lower():
     deployer = LifeSciencesGenieAgentDeployer(
         model_name=model_name,

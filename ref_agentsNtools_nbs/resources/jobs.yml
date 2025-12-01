@@ -1,0 +1,347 @@
+resources:
+  jobs:
+    # Job 1: Setup Tables and Vector Search Infrastructure
+    lifesciences_setup_job:
+      name: "[${bundle.target}] Life Sciences - Setup Tables and Vector Search"
+
+      tasks:
+        - task_key: setup_infrastructure
+          notebook_task:
+            notebook_path: ../01_setup_tables_and_vector_search.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+          new_cluster:
+            spark_version: 16.4.x-scala2.12
+            node_type_id: ${var.cluster_node_type}
+            num_workers: 2
+            data_security_mode: SINGLE_USER
+            custom_tags:
+              Project: LifeSciencesAgent
+              Component: Infrastructure
+
+          timeout_seconds: 3600
+          max_retries: 1
+
+      email_notifications:
+        on_failure:
+          - ${workspace.current_user.userName}
+
+      tags:
+        environment: ${bundle.target}
+        project: lifesciences_agent
+        component: setup
+
+    # Job 2: Deploy Life Sciences Agent
+    lifesciences_agent_deployment_job:
+      name: "[${bundle.target}] Life Sciences - Deploy Agent"
+
+      tasks:
+        - task_key: deploy_agent
+          notebook_task:
+            notebook_path: ../02_lifesciences_agent.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+          new_cluster:
+            spark_version: 16.4.x-scala2.12
+            node_type_id: ${var.cluster_node_type}
+            num_workers: 2
+            data_security_mode: SINGLE_USER
+            custom_tags:
+              Project: LifeSciencesAgent
+              Component: AgentDeployment
+
+          libraries:
+            - pypi:
+                package: langgraph
+            - pypi:
+                package: databricks-agents
+            - pypi:
+                package: databricks-langchain
+            - pypi:
+                package: databricks-vectorsearch
+            - pypi:
+                package: mlflow-skinny[databricks]
+
+          timeout_seconds: 3600
+          max_retries: 1
+
+      email_notifications:
+        on_failure:
+          - ${workspace.current_user.userName}
+        on_success:
+          - ${workspace.current_user.userName}
+
+      tags:
+        environment: ${bundle.target}
+        project: lifesciences_agent
+        component: deployment
+
+    ls_structured_retrieval_agent_deployment_job:
+      name: "[${bundle.target}] Life Sciences - Deploy Structured Retrieval Agent"
+
+      tasks:
+        - task_key: deploy_agent
+          notebook_task:
+            notebook_path: ../03_ls_structured_retrieval_agent.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+          new_cluster:
+            spark_version: 16.4.x-scala2.12
+            node_type_id: ${var.cluster_node_type}
+            num_workers: 2
+            data_security_mode: SINGLE_USER
+            custom_tags:
+              Project: LifeSciencesAgent
+              Component: AgentDeployment
+
+          libraries:
+            - pypi:
+                package: langgraph
+            - pypi:
+                package: databricks-agents
+            - pypi:
+                package: databricks-langchain
+            - pypi:
+                package: databricks-vectorsearch
+            - pypi:
+                package: mlflow-skinny[databricks]
+
+          timeout_seconds: 3600
+          max_retries: 1
+
+      email_notifications:
+        on_failure:
+          - ${workspace.current_user.userName}
+        on_success:
+          - ${workspace.current_user.userName}
+
+      tags:
+        environment: ${bundle.target}
+        project: lifesciences_agent
+        component: deployment
+
+    # Job 4: Multi-task Workflow - Orchestrator Agent (Build -> Evaluate -> Deploy)
+    lifesciences_orchestrator_workflow:
+      name: "[${bundle.target}] Life Sciences - Orchestrator Agent Workflow"
+
+      tasks:
+        - task_key: build_and_log_model
+          notebook_task:
+            notebook_path: ../02_lifesciences_agent.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+          new_cluster:
+            spark_version: 16.4.x-scala2.12
+            node_type_id: ${var.cluster_node_type}
+            num_workers: 2
+            data_security_mode: SINGLE_USER
+            custom_tags:
+              Project: LifeSciencesAgent
+              Component: ModelBuild
+
+          libraries:
+            - pypi:
+                package: langgraph
+            - pypi:
+                package: databricks-agents
+            - pypi:
+                package: databricks-langchain
+            - pypi:
+                package: databricks-vectorsearch
+            - pypi:
+                package: mlflow-skinny[databricks]
+
+          timeout_seconds: 3600
+          max_retries: 1
+
+        - task_key: evaluate_and_promote
+          depends_on:
+            - task_key: build_and_log_model
+
+          notebook_task:
+            notebook_path: ../04_evaluate_and_promote.py
+            base_parameters:
+              model_name: ${var.catalog}.${var.schema}.lifesciences_orchestrator_agent
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              promotion_threshold: "0.7"
+              evaluation_metric: relevance
+
+          new_cluster:
+            spark_version: 16.4.x-scala2.12
+            node_type_id: ${var.cluster_node_type}
+            num_workers: 2
+            data_security_mode: SINGLE_USER
+            custom_tags:
+              Project: LifeSciencesAgent
+              Component: ModelEvaluation
+
+          libraries:
+            - pypi:
+                package: mlflow-skinny[databricks]
+
+          timeout_seconds: 3600
+          max_retries: 1
+
+        - task_key: deploy_model
+          depends_on:
+            - task_key: evaluate_and_promote
+
+          notebook_task:
+            notebook_path: ../05_deploy_agent.py
+            base_parameters:
+              model_name: ${var.catalog}.${var.schema}.lifesciences_orchestrator_agent
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              model_alias: champion
+              endpoint_name: ""
+
+          new_cluster:
+            spark_version: 16.4.x-scala2.12
+            node_type_id: ${var.cluster_node_type}
+            num_workers: 2
+            data_security_mode: SINGLE_USER
+            custom_tags:
+              Project: LifeSciencesAgent
+              Component: ModelDeployment
+
+          libraries:
+            - pypi:
+                package: databricks-agents
+            - pypi:
+                package: mlflow-skinny[databricks]
+            - pypi:
+                package: databricks-sdk
+
+          timeout_seconds: 3600
+          max_retries: 1
+
+      email_notifications:
+        on_failure:
+          - ${workspace.current_user.userName}
+        on_success:
+          - ${workspace.current_user.userName}
+
+      tags:
+        environment: ${bundle.target}
+        project: lifesciences_agent
+        component: workflow
+
+    # Job 5: Multi-task Workflow - Genie Agent (Build -> Evaluate -> Deploy)
+    lifesciences_genie_workflow:
+      name: "[${bundle.target}] Life Sciences - Genie Agent Workflow"
+
+      tasks:
+        - task_key: build_and_log_model
+          notebook_task:
+            notebook_path: ../03_ls_structured_retrieval_agent.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+          new_cluster:
+            spark_version: 16.4.x-scala2.12
+            node_type_id: ${var.cluster_node_type}
+            num_workers: 2
+            data_security_mode: SINGLE_USER
+            custom_tags:
+              Project: LifeSciencesAgent
+              Component: ModelBuild
+
+          libraries:
+            - pypi:
+                package: langgraph
+            - pypi:
+                package: databricks-agents
+            - pypi:
+                package: databricks-langchain
+            - pypi:
+                package: databricks-vectorsearch
+            - pypi:
+                package: mlflow-skinny[databricks]
+            - pypi:
+                package: databricks-sdk
+
+          timeout_seconds: 3600
+          max_retries: 1
+
+        - task_key: evaluate_and_promote
+          depends_on:
+            - task_key: build_and_log_model
+
+          notebook_task:
+            notebook_path: ../04_evaluate_and_promote.py
+            base_parameters:
+              model_name: ${var.catalog}.${var.schema}.lifesciences_genie_agent
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              promotion_threshold: "0.7"
+              evaluation_metric: relevance
+
+          new_cluster:
+            spark_version: 16.4.x-scala2.12
+            node_type_id: ${var.cluster_node_type}
+            num_workers: 2
+            data_security_mode: SINGLE_USER
+            custom_tags:
+              Project: LifeSciencesAgent
+              Component: ModelEvaluation
+
+          libraries:
+            - pypi:
+                package: mlflow-skinny[databricks]
+
+          timeout_seconds: 3600
+          max_retries: 1
+
+        - task_key: deploy_model
+          depends_on:
+            - task_key: evaluate_and_promote
+
+          notebook_task:
+            notebook_path: ../05_deploy_agent.py
+            base_parameters:
+              model_name: ${var.catalog}.${var.schema}.lifesciences_genie_agent
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              model_alias: champion
+              endpoint_name: ""
+
+          new_cluster:
+            spark_version: 16.4.x-scala2.12
+            node_type_id: ${var.cluster_node_type}
+            num_workers: 2
+            data_security_mode: SINGLE_USER
+            custom_tags:
+              Project: LifeSciencesAgent
+              Component: ModelDeployment
+
+          libraries:
+            - pypi:
+                package: databricks-agents
+            - pypi:
+                package: mlflow-skinny[databricks]
+            - pypi:
+                package: databricks-sdk
+
+          timeout_seconds: 3600
+          max_retries: 1
+
+      email_notifications:
+        on_failure:
+          - ${workspace.current_user.userName}
+        on_success:
+          - ${workspace.current_user.userName}
+
+      tags:
+        environment: ${bundle.target}
+        project: lifesciences_agent
+        component: workflow
