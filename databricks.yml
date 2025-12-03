@@ -11,4 +11,4 @@ targets:
     mode: development
     default: true
     workspace:
-      host: <host url here>
+      host: <host_url_here>
