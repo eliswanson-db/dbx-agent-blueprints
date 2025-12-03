@@ -10,3 +10,7 @@ variables:
   cluster_node_type:
     description: Node type for job clusters
     default: Standard_DS3_v2
+
+  sql_warehouse_id:
+    description: SQL Warehouse ID for Genie queries
+    default: "9f4807aa9999e7f4"

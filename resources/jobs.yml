@@ -1,6 +1,5 @@
 resources:
   jobs:
-    # Job 1: Setup Tables and Vector Search Infrastructure
     lifesciences_setup_job:
       name: "[${bundle.target}] Life Sciences - Setup Tables and Vector Search"
 
@@ -33,14 +32,13 @@ resources:
         project: lifesciences_agent
         component: setup
 
-    # Job 2: Deploy Life Sciences Agent
-    lifesciences_agent_deployment_job:
-      name: "[${bundle.target}] Life Sciences - Deploy Agent"
+    simple_rag_agent_deployment_job:
+      name: "[${bundle.target}] Life Sciences - Deploy Simple RAG Agent"
 
       tasks:
         - task_key: deploy_agent
           notebook_task:
-            notebook_path: ../02_lifesciences_agent.py
+            notebook_path: ../02a_simple_rag.py
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}
@@ -80,13 +78,13 @@ resources:
         project: lifesciences_agent
         component: deployment
 
-    ls_structured_retrieval_agent_deployment_job:
-      name: "[${bundle.target}] Life Sciences - Deploy Structured Retrieval Agent"
+    parallel_rag_agent_deployment_job:
+      name: "[${bundle.target}] Life Sciences - Deploy Parallel RAG Agent"
 
       tasks:
         - task_key: deploy_agent
           notebook_task:
-            notebook_path: ../03_ls_structured_retrieval_agent.py
+            notebook_path: ../02b_parallel_rag.py
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}
@@ -126,14 +124,60 @@ resources:
         project: lifesciences_agent
         component: deployment
 
-    # Job 4: Multi-task Workflow - Orchestrator Agent (Build -> Evaluate -> Deploy)
-    lifesciences_orchestrator_workflow:
-      name: "[${bundle.target}] Life Sciences - Orchestrator Agent Workflow"
+    context_for_genie_agent_deployment_job:
+      name: "[${bundle.target}] Life Sciences - Deploy Context for Genie Agent"
+
+      tasks:
+        - task_key: deploy_agent
+          notebook_task:
+            notebook_path: ../03_context_for_genie.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              sql_warehouse_id: ${var.sql_warehouse_id}
+
+          new_cluster:
+            spark_version: 16.4.x-scala2.12
+            node_type_id: ${var.cluster_node_type}
+            num_workers: 2
+            data_security_mode: SINGLE_USER
+            custom_tags:
+              Project: LifeSciencesAgent
+              Component: AgentDeployment
+
+          libraries:
+            - pypi:
+                package: langgraph
+            - pypi:
+                package: databricks-agents
+            - pypi:
+                package: databricks-langchain
+            - pypi:
+                package: databricks-vectorsearch
+            - pypi:
+                package: mlflow-skinny[databricks]
+
+          timeout_seconds: 3600
+          max_retries: 1
+
+      email_notifications:
+        on_failure:
+          - ${workspace.current_user.userName}
+        on_success:
+          - ${workspace.current_user.userName}
+
+      tags:
+        environment: ${bundle.target}
+        project: lifesciences_agent
+        component: deployment
+
+    lifesciences_parallel_rag_workflow:
+      name: "[${bundle.target}] Life Sciences - Parallel RAG Agent Workflow"
 
       tasks:
         - task_key: build_and_log_model
           notebook_task:
-            notebook_path: ../02_lifesciences_agent.py
+            notebook_path: ../02b_parallel_rag.py
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}
@@ -235,17 +279,17 @@ resources:
         project: lifesciences_agent
         component: workflow
 
-    # Job 5: Multi-task Workflow - Genie Agent (Build -> Evaluate -> Deploy)
-    lifesciences_genie_workflow:
-      name: "[${bundle.target}] Life Sciences - Genie Agent Workflow"
+    lifesciences_context_for_genie_workflow:
+      name: "[${bundle.target}] Life Sciences - Context for Genie Agent Workflow"
 
       tasks:
         - task_key: build_and_log_model
           notebook_task:
-            notebook_path: ../03_ls_structured_retrieval_agent.py
+            notebook_path: ../03_context_for_genie.py
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}
+              sql_warehouse_id: ${var.sql_warehouse_id}
 
           new_cluster:
             spark_version: 16.4.x-scala2.12

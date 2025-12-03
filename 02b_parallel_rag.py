@@ -8,7 +8,8 @@
 # MAGIC - **Orchestrator**: Routes queries to appropriate workers
 # MAGIC - **SQL Worker**: Handles simple aggregation queries using UC functions
 # MAGIC - **Vector Search Workers (2 parallel)**: Search different vector indexes for relevant information
-# MAGIC - **Synthesizer/Judge**: Combines results from workers and provides final answer
+# MAGIC - **Synthesizer**: Combines results from workers into coherent synthesis
+# MAGIC - **Judge**: Evaluates confidence and quality of synthesized answer before final response
 # MAGIC
 # MAGIC **Features:**
 # MAGIC - Parallel execution of vector search workers
@@ -20,6 +21,9 @@
 
 # MAGIC %pip install -U -qqqq langgraph uv databricks-agents databricks-langchain mlflow-skinny[databricks] databricks-vectorsearch
 # MAGIC dbutils.library.restartPython()
+
+# COMMAND ----------
+# MAGIC %pip freeze
 
 # COMMAND ----------
 
@@ -51,16 +55,18 @@ print(f"Using catalog: {catalog}, schema: {schema}")
 # MAGIC
 # MAGIC     SQLWorker --> End1([Final Answer])
 # MAGIC
-# MAGIC     VectorWorker1 --> Synthesizer[Synthesizer/Judge<br/>Confidence-Based Synthesis]
+# MAGIC     VectorWorker1 --> Synthesizer[Synthesizer<br/>Combines Results]
 # MAGIC     VectorWorker2 --> Synthesizer
 # MAGIC
-# MAGIC     Synthesizer --> End2([Final Answer])
+# MAGIC     Synthesizer --> Judge[Judge<br/>Confidence-Based Evaluation]
+# MAGIC     Judge --> End2([Final Answer])
 # MAGIC
 # MAGIC     style Orchestrator fill:#e1f5ff
 # MAGIC     style SQLWorker fill:#fff4e1
 # MAGIC     style VectorWorker1 fill:#e8f5e9
 # MAGIC     style VectorWorker2 fill:#e8f5e9
 # MAGIC     style Synthesizer fill:#f3e5f5
+# MAGIC     style Judge fill:#fff3e0
 # MAGIC     style Start fill:#fce4ec
 # MAGIC     style End1 fill:#fce4ec
 # MAGIC     style End2 fill:#fce4ec
@@ -68,8 +74,8 @@ print(f"Using catalog: {catalog}, schema: {schema}")
 # MAGIC
 # MAGIC ### Execution Patterns
 # MAGIC
-# MAGIC 1. **SQL Path**: Orchestrator → SQL Worker → END (direct answer, no synthesis)
-# MAGIC 2. **Vector Path**: Orchestrator → [Vector Worker 1 + Vector Worker 2 in parallel] → Synthesizer → END
+# MAGIC 1. **SQL Path**: Orchestrator → SQL Worker → END (direct answer, no synthesis/judging)
+# MAGIC 2. **Vector Path**: Orchestrator → [Vector Worker 1 + Vector Worker 2 in parallel] → Synthesizer → Judge → END
 
 # COMMAND ----------
 
@@ -335,16 +341,16 @@ print(f"Using catalog: {catalog}, schema: {schema}")
 # MAGIC     if search_results:
 # MAGIC         final_result = f"{final_result}\n\nRaw search results:\n" + "\n---\n".join(search_results[:500])  # Limit size
 # MAGIC
-# MAGIC     worker_results = state.get("worker_results", {})
-# MAGIC     worker_results["vector_worker_1"] = {
-# MAGIC         "result": final_result,
-# MAGIC         "confidence": 0.80,
-# MAGIC         "source": "Vector Worker 1 (Genes & Proteins)",
-# MAGIC         "tool_calls_made": len(response.tool_calls) if response.tool_calls else 0
-# MAGIC     }
-# MAGIC
+# MAGIC     # Return worker results for merging
 # MAGIC     return {
-# MAGIC         "worker_results": worker_results,
+# MAGIC         "worker_results": {
+# MAGIC             "vector_worker_1": {
+# MAGIC                 "result": final_result,
+# MAGIC                 "confidence": 0.80,
+# MAGIC                 "source": "Vector Worker 1 (Genes & Proteins)",
+# MAGIC                 "tool_calls_made": len(response.tool_calls) if response.tool_calls else 0
+# MAGIC             }
+# MAGIC         },
 # MAGIC         "messages": [AIMessage(content=f"[Vector Worker 1 completed with {len(search_results)} results]")]
 # MAGIC     }
 # MAGIC
@@ -393,26 +399,27 @@ print(f"Using catalog: {catalog}, schema: {schema}")
 # MAGIC     if search_results:
 # MAGIC         final_result = f"{final_result}\n\nRaw search results:\n" + "\n---\n".join(search_results[:500])  # Limit size
 # MAGIC
-# MAGIC     worker_results = state.get("worker_results", {})
-# MAGIC     worker_results["vector_worker_2"] = {
-# MAGIC         "result": final_result,
-# MAGIC         "confidence": 0.80,
-# MAGIC         "source": "Vector Worker 2 (Pathways & Compounds)",
-# MAGIC         "tool_calls_made": len(response.tool_calls) if response.tool_calls else 0
-# MAGIC     }
-# MAGIC
+# MAGIC     # Return worker results for merging
 # MAGIC     return {
-# MAGIC         "worker_results": worker_results,
+# MAGIC         "worker_results": {
+# MAGIC             "vector_worker_2": {
+# MAGIC                 "result": final_result,
+# MAGIC                 "confidence": 0.80,
+# MAGIC                 "source": "Vector Worker 2 (Pathways & Compounds)",
+# MAGIC                 "tool_calls_made": len(response.tool_calls) if response.tool_calls else 0
+# MAGIC             }
+# MAGIC         },
 # MAGIC         "messages": [AIMessage(content=f"[Vector Worker 2 completed with {len(search_results)} results]")]
 # MAGIC     }
 # MAGIC
 # MAGIC ############################################
-# MAGIC # Synthesizer/Judge Node
+# MAGIC # Synthesizer Node
 # MAGIC ############################################
 # MAGIC
 # MAGIC def synthesizer_node(state: AgentState, config: RunnableConfig):
 # MAGIC     """
-# MAGIC     Synthesizer/judge combines all worker results and produces final answer.
+# MAGIC     Synthesizer combines all worker results into a coherent synthesis.
+# MAGIC     Does NOT judge quality - that's handled by the judge node.
 # MAGIC     """
 # MAGIC     messages = state["messages"]
 # MAGIC     user_message = [m for m in messages if isinstance(m, HumanMessage)][-1]
@@ -424,15 +431,15 @@ print(f"Using catalog: {catalog}, schema: {schema}")
 # MAGIC         for key, val in worker_results.items()
 # MAGIC     ])
 # MAGIC
-# MAGIC     system_prompt = """You are a synthesizer/judge agent for a life sciences knowledge system.
+# MAGIC     system_prompt = """You are a synthesizer agent for a life sciences knowledge system.
 # MAGIC
 # MAGIC You have received results from multiple specialized workers. Your job is to:
-# MAGIC 1. Evaluate the confidence and relevance of each result
-# MAGIC 2. Synthesize the information into a coherent, accurate answer
-# MAGIC 3. Cite which sources you used and their confidence levels
-# MAGIC 4. If results conflict, prefer higher confidence sources
+# MAGIC 1. Combine the information from all workers into a coherent narrative
+# MAGIC 2. Integrate findings across different knowledge bases
+# MAGIC 3. Present a comprehensive synthesis
 # MAGIC
-# MAGIC Provide an answer based on the worker results. Be scientific and precise.
+# MAGIC Do NOT judge the quality or confidence - just synthesize the information.
+# MAGIC Be scientific and precise in your synthesis.
 # MAGIC """
 # MAGIC
 # MAGIC     user_request = f"""Original Question: {user_message.content}
@@ -441,6 +448,76 @@ print(f"Using catalog: {catalog}, schema: {schema}")
 # MAGIC {results_summary}
 # MAGIC
 # MAGIC Synthesize these results to answer the original question."""
+# MAGIC
+# MAGIC     final_messages = [
+# MAGIC         SystemMessage(content=system_prompt),
+# MAGIC         HumanMessage(content=user_request)
+# MAGIC     ]
+# MAGIC     response = llm.invoke(final_messages)
+# MAGIC
+# MAGIC     return {
+# MAGIC         "messages": [response]
+# MAGIC     }
+# MAGIC
+# MAGIC ############################################
+# MAGIC # Judge Node
+# MAGIC ############################################
+# MAGIC
+# MAGIC def judge_node(state: AgentState, config: RunnableConfig):
+# MAGIC     """
+# MAGIC     Judge evaluates the synthesized answer based on confidence scores and quality.
+# MAGIC     Makes final determination on answer quality and provides the final response.
+# MAGIC     """
+# MAGIC     messages = state["messages"]
+# MAGIC     user_message = [m for m in messages if isinstance(m, HumanMessage)][-1]
+# MAGIC     worker_results = state.get("worker_results", {})
+# MAGIC
+# MAGIC     # Get the synthesized answer (last AI message)
+# MAGIC     synthesized_answer = None
+# MAGIC     for msg in reversed(messages):
+# MAGIC         if isinstance(msg, AIMessage) and not msg.content.startswith("["):
+# MAGIC             synthesized_answer = msg.content
+# MAGIC             break
+# MAGIC
+# MAGIC     # Fallback if no synthesized answer found
+# MAGIC     if not synthesized_answer:
+# MAGIC         synthesized_answer = "[No synthesized answer available]"
+# MAGIC
+# MAGIC     # Compile worker results with confidences for judging
+# MAGIC     results_with_confidence = "\n\n".join([
+# MAGIC         f"**{key}**:\n- Source: {val.get('source', 'Unknown')}\n- Confidence: {val.get('confidence', 0.0)}\n- Tool Calls: {val.get('tool_calls_made', 0)}\n- Result Preview: {str(val.get('result', ''))[:300]}..."
+# MAGIC         for key, val in worker_results.items()
+# MAGIC     ])
+# MAGIC
+# MAGIC     system_prompt = """You are a judge agent for a life sciences knowledge system.
+# MAGIC
+# MAGIC You have received:
+# MAGIC 1. A synthesized answer from the synthesizer
+# MAGIC 2. The original worker results with their confidence scores
+# MAGIC
+# MAGIC Your job is to:
+# MAGIC 1. Evaluate whether the synthesis accurately reflects the worker results
+# MAGIC 2. Assess the overall confidence based on individual worker confidences
+# MAGIC 3. Identify any potential issues or gaps in the answer
+# MAGIC 4. Provide a final, judged response that includes:
+# MAGIC    - The answer (improved if necessary)
+# MAGIC    - An overall confidence assessment
+# MAGIC    - Which sources were most reliable
+# MAGIC    - Any caveats or limitations
+# MAGIC
+# MAGIC Be critical and thorough in your evaluation. If confidence is low or results conflict,
+# MAGIC explicitly state this in your final answer.
+# MAGIC """
+# MAGIC
+# MAGIC     user_request = f"""Original Question: {user_message.content}
+# MAGIC
+# MAGIC Synthesized Answer:
+# MAGIC {synthesized_answer}
+# MAGIC
+# MAGIC Worker Results with Confidences:
+# MAGIC {results_with_confidence}
+# MAGIC
+# MAGIC Provide your judged final answer with confidence assessment."""
 # MAGIC
 # MAGIC     final_messages = [
 # MAGIC         SystemMessage(content=system_prompt),
@@ -475,7 +552,7 @@ print(f"Using catalog: {catalog}, schema: {schema}")
 # MAGIC ############################################
 # MAGIC
 # MAGIC def create_orchestrator_agent():
-# MAGIC     """Create the orchestrator-synthesizer agent graph with true parallel execution using Send."""
+# MAGIC     """Create the orchestrator-synthesizer-judge agent graph with true parallel execution using Send."""
 # MAGIC     workflow = StateGraph(AgentState)
 # MAGIC
 # MAGIC     # Add nodes
@@ -484,6 +561,7 @@ print(f"Using catalog: {catalog}, schema: {schema}")
 # MAGIC     workflow.add_node("vector_worker_1", vector_worker_1_node)
 # MAGIC     workflow.add_node("vector_worker_2", vector_worker_2_node)
 # MAGIC     workflow.add_node("synthesizer", synthesizer_node)
+# MAGIC     workflow.add_node("judge", judge_node)
 # MAGIC
 # MAGIC     # Define flow
 # MAGIC     workflow.set_entry_point("orchestrator")
@@ -491,15 +569,18 @@ print(f"Using catalog: {catalog}, schema: {schema}")
 # MAGIC     # Orchestrator uses Send for dynamic parallel routing
 # MAGIC     workflow.add_conditional_edges("orchestrator", route_after_orchestrator)
 # MAGIC
-# MAGIC     # SQL worker goes directly to END (no synthesis needed)
+# MAGIC     # SQL worker goes directly to END (no synthesis/judging needed)
 # MAGIC     workflow.add_edge("sql_worker", END)
 # MAGIC
 # MAGIC     # Both vector workers go to synthesizer
 # MAGIC     workflow.add_edge("vector_worker_1", "synthesizer")
 # MAGIC     workflow.add_edge("vector_worker_2", "synthesizer")
 # MAGIC
-# MAGIC     # Synthesizer goes to END
-# MAGIC     workflow.add_edge("synthesizer", END)
+# MAGIC     # Synthesizer always goes to judge
+# MAGIC     workflow.add_edge("synthesizer", "judge")
+# MAGIC
+# MAGIC     # Judge goes to END
+# MAGIC     workflow.add_edge("judge", END)
 # MAGIC
 # MAGIC     return workflow.compile()
 # MAGIC
@@ -937,9 +1018,9 @@ print(f"  2. Run notebook 05_deploy_agent.py")
 # MAGIC %md
 # MAGIC ## Architecture Summary
 # MAGIC
-# MAGIC This agent implements an orchestrator-synthesizer pattern with parallel execution using LangGraph's Send API:
+# MAGIC This agent implements an orchestrator-synthesizer-judge pattern with parallel execution using LangGraph's Send API:
 # MAGIC
 # MAGIC ### Routing Logic
 # MAGIC
-# MAGIC 1. **SQL Path**: Orchestrator → SQL Worker → END (direct answer, no synthesis)
-# MAGIC 2. **Vector Path**: Orchestrator → [Vector Worker 1 + Vector Worker 2] → Synthesizer → END (parallel execution)
+# MAGIC 1. **SQL Path**: Orchestrator → SQL Worker → END (direct answer, no synthesis/judging)
+# MAGIC 2. **Vector Path**: Orchestrator → [Vector Worker 1 + Vector Worker 2] → Synthesizer → Judge → END (parallel execution with confidence-based judging)

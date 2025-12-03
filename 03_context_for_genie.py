@@ -20,11 +20,15 @@
 # Widgets for configuration
 dbutils.widgets.text("catalog", "dbxmetagen", "Catalog")
 dbutils.widgets.text("schema", "default", "Schema")
+dbutils.widgets.text("sql_warehouse_id", "9f4807aa9999e7f4", "SQL Warehouse ID")
 
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
+sql_warehouse_id = dbutils.widgets.get("sql_warehouse_id")
 
 print(f"Using catalog: {catalog}, schema: {schema}")
+if sql_warehouse_id:
+    print(f"SQL Warehouse ID: {sql_warehouse_id}")
 
 # COMMAND ----------
 
@@ -145,11 +149,14 @@ print(f"Using catalog: {catalog}, schema: {schema}")
 # MAGIC ############################################
 # MAGIC # Configuration
 # MAGIC ############################################
+# MAGIC import os
+# MAGIC
 # MAGIC LLM_ENDPOINT_NAME = "databricks-claude-3-7-sonnet"
-# MAGIC CATALOG = "dbxmetagen"
-# MAGIC SCHEMA = "default"
+# MAGIC CATALOG = os.getenv("CATALOG", "dbxmetagen")
+# MAGIC SCHEMA = os.getenv("SCHEMA", "default")
 # MAGIC VECTOR_SEARCH_ENDPOINT = "lifesciences_vector_search"
-# MAGIC GENIE_SPACE_ID = "01f0c64ba4c61bd49b1aa03af847407a"
+# MAGIC GENIE_SPACE_ID = os.getenv("GENIE_SPACE_ID", "01f0c64ba4c61bd49b1aa03af847407a")
+# MAGIC SQL_WAREHOUSE_ID = os.getenv("SQL_WAREHOUSE_ID", "9f4807aa9999e7f4")
 # MAGIC
 # MAGIC llm = ChatDatabricks(endpoint=LLM_ENDPOINT_NAME)
 # MAGIC
@@ -497,12 +504,12 @@ print(f"Using catalog: {catalog}, schema: {schema}")
 # MAGIC     messages = state["messages"]
 # MAGIC     user_message = [m for m in messages if isinstance(m, HumanMessage)][-1]
 # MAGIC
-# MAGIC     worker_tools = [VECTOR_SEARCH_TOOLS[0], VECTOR_SEARCH_TOOLS[1]]
+# MAGIC     worker_tools = [VECTOR_SEARCH_TOOLS[0], VECTOR_SEARCH_TOOLS[1]]  # genes, proteins
 # MAGIC
 # MAGIC     worker_prompt = """You are Vector Worker 1, specializing in genes and proteins knowledge.
 # MAGIC
 # MAGIC Search the genes and proteins knowledge bases to find relevant information for the user's question.
-# MAGIC Use BOTH search tools to gather relevant information.
+# MAGIC Use BOTH search tools to gather relevant information. Return the results with their confidence scores.
 # MAGIC """
 # MAGIC
 # MAGIC     worker_llm = llm.bind_tools(worker_tools)
@@ -511,36 +518,40 @@ print(f"Using catalog: {catalog}, schema: {schema}")
 # MAGIC     response = worker_llm.invoke(worker_messages)
 # MAGIC     result_messages = [response]
 # MAGIC
+# MAGIC     # Execute tool calls and capture results
 # MAGIC     search_results = []
 # MAGIC     if response.tool_calls:
 # MAGIC         tool_node = ToolNode(worker_tools)
 # MAGIC         tool_results = tool_node.invoke({"messages": [response]})
 # MAGIC         result_messages.extend(tool_results["messages"])
 # MAGIC
+# MAGIC         # Extract tool result content
 # MAGIC         for msg in tool_results["messages"]:
 # MAGIC             if hasattr(msg, 'content') and msg.content:
 # MAGIC                 search_results.append(str(msg.content))
 # MAGIC
+# MAGIC         # Synthesize findings if we have results
 # MAGIC         if search_results:
 # MAGIC             final_response = llm.invoke(worker_messages + result_messages + [
-# MAGIC                 SystemMessage(content="Summarize the search results concisely.")
+# MAGIC                 SystemMessage(content="Summarize the search results concisely, highlighting key findings and confidence scores.")
 # MAGIC             ])
 # MAGIC             result_messages.append(final_response)
 # MAGIC
+# MAGIC     # Compile results for synthesizer
 # MAGIC     final_result = result_messages[-1].content if result_messages else "No results found"
 # MAGIC     if search_results:
-# MAGIC         final_result = f"{final_result}\n\nRaw results:\n" + "\n---\n".join(search_results[:500])
+# MAGIC         final_result = f"{final_result}\n\nRaw search results:\n" + "\n---\n".join(search_results[:500])  # Limit size
 # MAGIC
-# MAGIC     worker_results = state.get("worker_results", {})
-# MAGIC     worker_results["vector_worker_1"] = {
-# MAGIC         "result": final_result,
-# MAGIC         "confidence": 0.80,
-# MAGIC         "source": "Vector Worker 1 (Genes & Proteins)",
-# MAGIC         "tool_calls_made": len(response.tool_calls) if response.tool_calls else 0
-# MAGIC     }
-# MAGIC
+# MAGIC     # Return worker results for merging
 # MAGIC     return {
-# MAGIC         "worker_results": worker_results,
+# MAGIC         "worker_results": {
+# MAGIC             "vector_worker_1": {
+# MAGIC                 "result": final_result,
+# MAGIC                 "confidence": 0.80,
+# MAGIC                 "source": "Vector Worker 1 (Genes & Proteins)",
+# MAGIC                 "tool_calls_made": len(response.tool_calls) if response.tool_calls else 0
+# MAGIC             }
+# MAGIC         },
 # MAGIC         "messages": [AIMessage(content=f"[Vector Worker 1 completed with {len(search_results)} results]")]
 # MAGIC     }
 # MAGIC
@@ -549,12 +560,12 @@ print(f"Using catalog: {catalog}, schema: {schema}")
 # MAGIC     messages = state["messages"]
 # MAGIC     user_message = [m for m in messages if isinstance(m, HumanMessage)][-1]
 # MAGIC
-# MAGIC     worker_tools = [VECTOR_SEARCH_TOOLS[2], VECTOR_SEARCH_TOOLS[3]]
+# MAGIC     worker_tools = [VECTOR_SEARCH_TOOLS[2], VECTOR_SEARCH_TOOLS[3]]  # pathways, compounds
 # MAGIC
 # MAGIC     worker_prompt = """You are Vector Worker 2, specializing in pathways and compounds knowledge.
 # MAGIC
 # MAGIC Search the pathways and compounds knowledge bases to find relevant information for the user's question.
-# MAGIC Use BOTH search tools to gather relevant information.
+# MAGIC Use BOTH search tools to gather relevant information. Return the results with their confidence scores.
 # MAGIC """
 # MAGIC
 # MAGIC     worker_llm = llm.bind_tools(worker_tools)
@@ -563,36 +574,40 @@ print(f"Using catalog: {catalog}, schema: {schema}")
 # MAGIC     response = worker_llm.invoke(worker_messages)
 # MAGIC     result_messages = [response]
 # MAGIC
+# MAGIC     # Execute tool calls and capture results
 # MAGIC     search_results = []
 # MAGIC     if response.tool_calls:
 # MAGIC         tool_node = ToolNode(worker_tools)
 # MAGIC         tool_results = tool_node.invoke({"messages": [response]})
 # MAGIC         result_messages.extend(tool_results["messages"])
 # MAGIC
+# MAGIC         # Extract tool result content
 # MAGIC         for msg in tool_results["messages"]:
 # MAGIC             if hasattr(msg, 'content') and msg.content:
 # MAGIC                 search_results.append(str(msg.content))
 # MAGIC
+# MAGIC         # Synthesize findings if we have results
 # MAGIC         if search_results:
 # MAGIC             final_response = llm.invoke(worker_messages + result_messages + [
-# MAGIC                 SystemMessage(content="Summarize the search results concisely.")
+# MAGIC                 SystemMessage(content="Summarize the search results concisely, highlighting key findings and confidence scores.")
 # MAGIC             ])
 # MAGIC             result_messages.append(final_response)
 # MAGIC
+# MAGIC     # Compile results for synthesizer
 # MAGIC     final_result = result_messages[-1].content if result_messages else "No results found"
 # MAGIC     if search_results:
-# MAGIC         final_result = f"{final_result}\n\nRaw results:\n" + "\n---\n".join(search_results[:500])
+# MAGIC         final_result = f"{final_result}\n\nRaw search results:\n" + "\n---\n".join(search_results[:500])  # Limit size
 # MAGIC
-# MAGIC     worker_results = state.get("worker_results", {})
-# MAGIC     worker_results["vector_worker_2"] = {
-# MAGIC         "result": final_result,
-# MAGIC         "confidence": 0.80,
-# MAGIC         "source": "Vector Worker 2 (Pathways & Compounds)",
-# MAGIC         "tool_calls_made": len(response.tool_calls) if response.tool_calls else 0
-# MAGIC     }
-# MAGIC
+# MAGIC     # Return worker results for merging
 # MAGIC     return {
-# MAGIC         "worker_results": worker_results,
+# MAGIC         "worker_results": {
+# MAGIC             "vector_worker_2": {
+# MAGIC                 "result": final_result,
+# MAGIC                 "confidence": 0.80,
+# MAGIC                 "source": "Vector Worker 2 (Pathways & Compounds)",
+# MAGIC                 "tool_calls_made": len(response.tool_calls) if response.tool_calls else 0
+# MAGIC             }
+# MAGIC         },
 # MAGIC         "messages": [AIMessage(content=f"[Vector Worker 2 completed with {len(search_results)} results]")]
 # MAGIC     }
 # MAGIC
@@ -602,33 +617,42 @@ print(f"Using catalog: {catalog}, schema: {schema}")
 # MAGIC
 # MAGIC def synthesizer_node(state: AgentState, config: RunnableConfig):
 # MAGIC     """
-# MAGIC     Synthesizer evaluates vector results and decides:
-# MAGIC     1. Return complete answer directly, OR
-# MAGIC     2. Rewrite question with context for Genie
+# MAGIC     Synthesizer combines all worker results into a coherent synthesis.
+# MAGIC     For vector-only path, provides final answer directly.
 # MAGIC     """
 # MAGIC     messages = state["messages"]
 # MAGIC     user_message = [m for m in messages if isinstance(m, HumanMessage)][-1]
 # MAGIC     worker_results = state.get("worker_results", {})
 # MAGIC
+# MAGIC     # Compile worker results
 # MAGIC     results_summary = "\n\n".join([
 # MAGIC         f"**{key}**:\n- Confidence: {val['confidence']}\n- Result: {val['result']}"
 # MAGIC         for key, val in worker_results.items()
 # MAGIC     ])
 # MAGIC
-# MAGIC     synthesizer_prompt = """You are a synthesizer for a life sciences knowledge system.
+# MAGIC     system_prompt = """You are a synthesizer agent for a life sciences knowledge system.
 # MAGIC
-# MAGIC You have received semantic search results from vector workers. Synthesize them into a clear answer.
+# MAGIC You have received results from multiple specialized workers. Your job is to:
+# MAGIC 1. Combine the information from all workers into a coherent narrative
+# MAGIC 2. Integrate findings across different knowledge bases
+# MAGIC 3. Present a comprehensive synthesis
 # MAGIC
 # MAGIC If the vector search results are insufficient or empty, respond with:
 # MAGIC "I was unable to find sufficient information to answer your question. Please try rephrasing with more specific details."
 # MAGIC
-# MAGIC Otherwise, provide a clear answer based on the search results.
+# MAGIC Otherwise, be scientific and precise in your synthesis.
 # MAGIC """
 # MAGIC
-# MAGIC     # Must include both SystemMessage and HumanMessage for LLM API
+# MAGIC     user_request = f"""Original Question: {user_message.content}
+# MAGIC
+# MAGIC Worker Results:
+# MAGIC {results_summary}
+# MAGIC
+# MAGIC Synthesize these results to answer the original question."""
+# MAGIC
 # MAGIC     final_messages = [
-# MAGIC         SystemMessage(content=synthesizer_prompt),
-# MAGIC         HumanMessage(content=f"Original Question: {user_message.content}\n\nWorker Results:\n{results_summary}")
+# MAGIC         SystemMessage(content=system_prompt),
+# MAGIC         HumanMessage(content=user_request)
 # MAGIC     ]
 # MAGIC     response = llm.invoke(final_messages)
 # MAGIC
@@ -840,8 +864,16 @@ dbutils.library.restartPython()
 # Re-fetch widget values after Python restart
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
+sql_warehouse_id = dbutils.widgets.get("sql_warehouse_id")
 
 print(f"Using catalog: {catalog}, schema: {schema}")
+if sql_warehouse_id:
+    print(f"SQL Warehouse ID: {sql_warehouse_id}")
+    import os
+
+    os.environ["SQL_WAREHOUSE_ID"] = sql_warehouse_id
+    os.environ["CATALOG"] = catalog
+    os.environ["SCHEMA"] = schema
 
 # Import the agent
 from agent_genie import AGENT
@@ -949,12 +981,14 @@ from agent_genie import (
     GENIE_SPACE_ID,
     CATALOG,
     SCHEMA,
+    SQL_WAREHOUSE_ID,
 )
 import mlflow
 from mlflow.models.resources import (
     DatabricksFunction,
     DatabricksTable,
     DatabricksGenieSpace,
+    DatabricksSQLWarehouse,
 )
 from pkg_resources import get_distribution
 
@@ -964,6 +998,14 @@ resources = []
 # Add Genie space - enables the agent to query Genie for structured data analysis
 # Genie space must have access to the base tables listed below
 resources.append(DatabricksGenieSpace(genie_space_id=GENIE_SPACE_ID))
+
+# Add SQL Warehouse - required for Genie to execute SQL queries
+if SQL_WAREHOUSE_ID:
+    resources.append(DatabricksSQLWarehouse(warehouse_id=SQL_WAREHOUSE_ID))
+else:
+    print(
+        "WARNING: SQL_WAREHOUSE_ID not set. Genie agent may not function properly without a SQL warehouse."
+    )
 
 # Add base Delta tables (these are what Genie queries)
 for table in [
