@@ -33,6 +33,7 @@ endpoint_name = dbutils.widgets.get("endpoint_name")
 print(f"Using catalog: {catalog}, schema: {schema}")
 print(f"VectorSearch_endpoint: {endpoint_name}")
 
+
 # COMMAND ----------
 
 from pyspark.sql import SparkSession

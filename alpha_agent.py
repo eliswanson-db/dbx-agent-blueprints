@@ -1,6 +1,7 @@
 from typing import Annotated, Any, Generator, Literal, Optional, Sequence, TypedDict, Union
 import json
 from operator import add
+import os
 
 import mlflow
 from databricks_langchain import ChatDatabricks, UCFunctionToolkit, VectorSearchRetrieverTool
@@ -25,6 +26,11 @@ from mlflow.types.responses import (
 ############################################
 LLM_ENDPOINT_NAME = "databricks-claude-3-7-sonnet"
 
+# CATALOG = os.environ.get("CATALOG", "<your_catalog>") ## user to update 
+# SCHEMA = os.environ.get("SCHEMA", "<your_schema>") ## user to update
+# VECTOR_SEARCH_ENDPOINT = os.environ.get("VECTOR_SEARCH_ENDPOINT", "<your_vs_endpoint>") ## user to update
+
+## hardcoding for the example here | please update
 CATALOG = "mmt"
 SCHEMA = "LS_agent"
 VECTOR_SEARCH_ENDPOINT = "ls_vs_mmt"

@@ -1,6 +1,7 @@
 from typing import Annotated, Any, Generator, Literal, Optional, Sequence, TypedDict, Union
 import json
 from operator import add
+import os
 
 import mlflow
 from databricks_langchain import ChatDatabricks, UCFunctionToolkit, VectorSearchRetrieverTool
@@ -25,13 +26,21 @@ from mlflow.types.responses import (
 ############################################
 LLM_ENDPOINT_NAME = "databricks-claude-3-7-sonnet"
 
-## can't use widgets?
-CATALOG = "mmt"
-SCHEMA = "LS_agent"
-VECTOR_SEARCH_ENDPOINT = "ls_vs_mmt"
-GENIE_SPACE_ID = "01f0c96ac7941abc82c4d50100a66439"  
+
+# ## hardcode for this example 
+# CATALOG = "mmt"
+# SCHEMA = "LS_agent"
+# VECTOR_SEARCH_ENDPOINT = "ls_vs_mmt"
+# GENIE_SPACE_ID = "01f0c96ac7941abc82c4d50100a66439"  
+
+CATALOG = os.environ.get("CATALOG", "<your_catalog>")
+SCHEMA = os.environ.get("SCHEMA", "<your_schema>")
+VECTOR_SEARCH_ENDPOINT = os.environ.get("VECTOR_SEARCH_ENDPOINT", "<your_vs_endpoint>")
+GENIE_SPACE_ID = os.environ.get("GENIE_SPACE_ID", "<your_genie_space_id>")
+
 
 llm = ChatDatabricks(endpoint=LLM_ENDPOINT_NAME)
+
 
 ############################################
 # Define Tools

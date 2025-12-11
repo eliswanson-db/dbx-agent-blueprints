@@ -7,17 +7,44 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install -U -qqqq databricks-agents mlflow-skinny[databricks] databricks-sdk
+# MAGIC %pip install -U -qqqq databricks-agents mlflow-skinny[databricks] databricks-sdk pyyaml
 # MAGIC dbutils.library.restartPython()
+
+# COMMAND ----------
+
+import os
+import yaml
+
+# Function to read and parse the config.yaml file
+def load_config():
+    config_path = os.path.join(os.getcwd(), 'config.yaml')
+    catalog = schema = model_base_name = vs_endpoint_name = None
+
+    if os.path.exists(config_path):
+        with open(config_path, 'r') as file:
+            try:
+                config = yaml.safe_load(file)
+                catalog = config.get('catalog', '<your_default_catalog>')
+                schema = config.get('schema', '<your_default_schema>')
+                model_base_name = config.get('model_base_name', '<your_default_model_base_name>')
+                vs_endpoint_name = config.get('vs_endpoint_name', '<your_default_vectorsearch_endpoint_name>'),
+
+            except yaml.YAMLError as e:
+                print(f"Error parsing YAML file: {e}")
+
+    return catalog, schema, model_base_name, vs_endpoint_name
+
+# Load the configuration
+catalog, schema, model_base_name, vs_endpoint_name = load_config()
 
 # COMMAND ----------
 
 # DBTITLE 1,define widget variables
 # Widgets for catalog, schema, and model base name
 
-dbutils.widgets.text("catalog", "mmt", "Catalog")
-dbutils.widgets.text("schema", "LS_agent", "Schema")
-dbutils.widgets.text("model_base_name", "lifesciences_agent", "Model Base Name")
+dbutils.widgets.text("catalog", catalog, "Catalog")
+dbutils.widgets.text("schema", schema, "Schema")
+dbutils.widgets.text("model_base_name", model_base_name, "Model Base Name")
 dbutils.widgets.text("endpoint_name", "", "Model Endpoint Name (optional)")
 
 dbutils.widgets.text("promotion_threshold", "0.7", "Promotion Threshold")
@@ -59,10 +86,10 @@ print(f"Endpoint: {endpoint_name}")
 # Replace 'evaluate_model' with the actual task name of the upstream notebook in your job configuration
 upstream_task = "evaluate_model"
 
-model_base_name = dbutils.jobs.taskValues.get(taskKey=upstream_task, key="model_base_name", debugValue="lifesciences_agent")
-UC_MODEL_NAME = dbutils.jobs.taskValues.get(taskKey=upstream_task, key="UC_MODEL_NAME", debugValue="mmt.LS_agent.lifesciences_agent")
-catalog = dbutils.jobs.taskValues.get(taskKey=upstream_task, key="catalog", debugValue="mmt")
-schema = dbutils.jobs.taskValues.get(taskKey=upstream_task, key="schema", debugValue="LS_agent")
+model_base_name = dbutils.jobs.taskValues.get(taskKey=upstream_task, key="model_base_name", debugValue="<your_model_base_name>")
+UC_MODEL_NAME = dbutils.jobs.taskValues.get(taskKey=upstream_task, key="UC_MODEL_NAME", debugValue="<your_catalog.your_schema.your_model_base_name>")
+catalog = dbutils.jobs.taskValues.get(taskKey=upstream_task, key="catalog", debugValue="<your_catalog>")
+schema = dbutils.jobs.taskValues.get(taskKey=upstream_task, key="schema", debugValue="<your_schema>")
 promotion_threshold = dbutils.jobs.taskValues.get(taskKey=upstream_task, key="promotion_threshold", debugValue=0.7)
 evaluation_metric = dbutils.jobs.taskValues.get(taskKey=upstream_task, key="evaluation_metric", debugValue="relevance")
 evaluated_version = dbutils.jobs.taskValues.get(taskKey=upstream_task, key="evaluated_version", debugValue="1")
@@ -347,6 +374,11 @@ class LifeSciencesGenieAgentDeployer(LifeSciencesAgentDeployer):
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC
+
+# COMMAND ----------
+
 # DBTITLE 1,run Deployment
 from mlflow.tracking import MlflowClient
 import time
@@ -395,7 +427,7 @@ else:
             catalog=catalog,
             schema=schema,
             model_alias=model_alias,
-            genie_space_id="01f0c64ba4c61bd49b1aa03af847407a", ## update to your Genie space ID
+            genie_space_id="<you_genie_space_id>", ## update to your Genie space ID
         )
     else:
         deployer = LifeSciencesAgentDeployer(
@@ -482,4 +514,5 @@ else:
 
 # COMMAND ----------
 
-
+# MAGIC %md
+# MAGIC

@@ -23,30 +23,65 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install -U -qqqq langgraph uv databricks-agents databricks-langchain mlflow-skinny[databricks] databricks-vectorsearch
+# MAGIC %pip install -U -qqqq langgraph uv databricks-agents databricks-langchain mlflow-skinny[databricks] databricks-vectorsearch pyyaml
 # MAGIC dbutils.library.restartPython()
+
+# COMMAND ----------
+
+import os
+import yaml
+
+# Function to read and parse the config.yaml file
+def load_config():
+    config_path = os.path.join(os.getcwd(), 'config.yaml')
+    catalog = schema = model_base_name = vs_endpoint_name = None
+
+    if os.path.exists(config_path):
+        with open(config_path, 'r') as file:
+            try:
+                config = yaml.safe_load(file)
+                catalog = config.get('catalog', 'your_catalog')
+                schema = config.get('schema', 'your_schema')
+                model_base_name = config.get('model_base_name', 'your_model_base_name')
+                vs_endpoint_name = config.get('vs_endpoint_name', 'your_vectorsearch_endpoint_name')
+            except yaml.YAMLError as e:
+                print(f"Error parsing YAML file: {e}")
+
+    return catalog, schema, model_base_name, vs_endpoint_name
+
+# Load the configuration
+catalog, schema, model_base_name, vs_endpoint_name = load_config()
 
 # COMMAND ----------
 
 # Widgets for catalog, schema, and model base name
 
-dbutils.widgets.text("catalog", "mmt", "Catalog")
-dbutils.widgets.text("schema", "LS_agent", "Schema")
-dbutils.widgets.text("model_base_name", "lifesciences_agent", "Model Base Name")
-dbutils.widgets.text("vs_endpoint_name", "ls_vs_mmt", "VectorSearch_endpoint") #lifesciences_vector_search
+dbutils.widgets.text("catalog", catalog, "Catalog")
+dbutils.widgets.text("schema", schema, "Schema")
+dbutils.widgets.text("model_base_name", model_base_name, "Model Base Name")
+dbutils.widgets.text("vs_endpoint_name", vs_endpoint_name, "VectorSearch_endpoint") #lifesciences_vector_search
 
-catalog = dbutils.widgets.get("catalog")
-schema = dbutils.widgets.get("schema")
-model_base_name = dbutils.widgets.get("model_base_name")
-vs_endpoint_name = dbutils.widgets.get("vs_endpoint_name")
+import os
+
+# Set environment variables from widget values
+os.environ["CATALOG"] = dbutils.widgets.get("catalog")
+os.environ["SCHEMA"] = dbutils.widgets.get("schema")
+os.environ["VECTOR_SEARCH_ENDPOINT"] = dbutils.widgets.get("vs_endpoint_name")
+os.environ["MODEL_BASE_NAME"] = dbutils.widgets.get("model_base_name")
+
+# Assign Python variables from environment variables
+CATALOG = os.environ["CATALOG"]
+SCHEMA = os.environ["SCHEMA"]
+MODEL_BASE_NAME = os.environ["MODEL_BASE_NAME"]
+VS_ENDPOINT_NAME = os.environ["VECTOR_SEARCH_ENDPOINT"]
 
 # Construct Fully Qualified Unity Catalog model name
-UC_MODEL_NAME = f"{catalog}.{schema}.alpha_{model_base_name}"
+UC_MODEL_NAME = f"{CATALOG}.{SCHEMA}.alpha_{MODEL_BASE_NAME}"
 
-print(f"Using catalog: {catalog}, schema: {schema}")
-print(f"Model base name: {model_base_name}")
+print(f"Using catalog: {CATALOG}, schema: {SCHEMA}")
+print(f"Model base name: {MODEL_BASE_NAME}")
 print(f"FQ UC Model Name: {UC_MODEL_NAME}")
-print(f"VectorSearch_endpoint: {vs_endpoint_name}")
+print(f"VectorSearch_endpoint: {VS_ENDPOINT_NAME}")
 
 # COMMAND ----------
 
@@ -94,6 +129,7 @@ print(f"VectorSearch_endpoint: {vs_endpoint_name}")
 # MAGIC from typing import Annotated, Any, Generator, Literal, Optional, Sequence, TypedDict, Union
 # MAGIC import json
 # MAGIC from operator import add
+# MAGIC import os
 # MAGIC
 # MAGIC import mlflow
 # MAGIC from databricks_langchain import ChatDatabricks, UCFunctionToolkit, VectorSearchRetrieverTool
@@ -118,6 +154,11 @@ print(f"VectorSearch_endpoint: {vs_endpoint_name}")
 # MAGIC ############################################
 # MAGIC LLM_ENDPOINT_NAME = "databricks-claude-3-7-sonnet"
 # MAGIC
+# MAGIC # CATALOG = os.environ.get("CATALOG", "<your_catalog>") ## user to update 
+# MAGIC # SCHEMA = os.environ.get("SCHEMA", "<your_schema>") ## user to update
+# MAGIC # VECTOR_SEARCH_ENDPOINT = os.environ.get("VECTOR_SEARCH_ENDPOINT", "<your_vs_endpoint>") ## user to update
+# MAGIC
+# MAGIC ## hardcoding for the example here | please update
 # MAGIC CATALOG = "mmt"
 # MAGIC SCHEMA = "LS_agent"
 # MAGIC VECTOR_SEARCH_ENDPOINT = "ls_vs_mmt"

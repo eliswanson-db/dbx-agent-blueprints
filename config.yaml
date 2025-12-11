@@ -1,0 +1,20 @@
+# config.yaml
+# Configuration for Life Sciences Knowledge Base Setup
+
+# Unity Catalog catalog name (must exist or be creatable in your workspace)
+catalog: mmt
+
+# Unity Catalog schema name (namespace for your tables)
+schema: LS_agent
+
+# Name of the Vector Search endpoint to use or create
+vs_endpoint_name: ls_vs_mmt
+
+# Model base name for LLM, if used elsewhere
+model_base_name: lifesciences_agent
+
+# FQ UC Model Name
+model_name: mmt.LS_agent.lifesciences_agent
+
+# Genie Space ID -- set up a Genie Space to extract its 32 character ID e.g. xXXxXXxXXXxXxxxxXxxXXxXXxxxxXxxX
+genie_space_id: 01f0c96ac7941abc82c4d50100a66439

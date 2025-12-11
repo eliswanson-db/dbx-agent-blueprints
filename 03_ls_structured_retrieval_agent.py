@@ -12,19 +12,88 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install -U -qqqq langgraph uv databricks-agents databricks-langchain mlflow-skinny[databricks] databricks-vectorsearch databricks-sdk
+# MAGIC %pip install -U -qqqq langgraph uv databricks-agents databricks-langchain mlflow-skinny[databricks] databricks-vectorsearch databricks-sdk pyyaml
 # MAGIC dbutils.library.restartPython()
 
 # COMMAND ----------
 
-# Widgets for configuration
-dbutils.widgets.text("catalog", "mmt", "Catalog")
-dbutils.widgets.text("schema", "LS_agent", "Schema")
+import os
+import yaml
 
-catalog = dbutils.widgets.get("catalog")
-schema = dbutils.widgets.get("schema")
+# Function to read and parse the config.yaml file
+def load_config():
+    config_path = os.path.join(os.getcwd(), 'config.yaml')
+    catalog = schema = model_base_name = vs_endpoint_name = genie_space_id = None
 
-print(f"Using catalog: {catalog}, schema: {schema}")
+    if os.path.exists(config_path):
+        with open(config_path, 'r') as file:
+            try:
+                config = yaml.safe_load(file)
+                catalog = config.get('catalog', 'your_catalog')
+                schema = config.get('schema', 'your_schema')
+                model_base_name = config.get('model_base_name', 'your_model_base_name')
+                vs_endpoint_name = config.get('vs_endpoint_name', 'your_vectorsearch_endpoint_name')
+                genie_space_id = config.get('genie_space_id', 'your_genie_space_id')
+            except yaml.YAMLError as e:
+                print(f"Error parsing YAML file: {e}")
+
+    return catalog, schema, model_base_name, vs_endpoint_name, genie_space_id
+
+# Load the configuration
+catalog, schema, model_base_name, vs_endpoint_name, genie_space_id = load_config()
+
+# COMMAND ----------
+
+# Widgets for catalog, schema, and model base name
+
+dbutils.widgets.text("catalog", catalog, "Catalog")
+dbutils.widgets.text("schema", schema, "Schema")
+dbutils.widgets.text("model_base_name", model_base_name, "Model Base Name")
+dbutils.widgets.text("vs_endpoint_name", vs_endpoint_name, "VectorSearch_endpoint")
+dbutils.widgets.text("genie_space_id", genie_space_id, "Genie Space ID")
+
+import os
+
+# Set environment variables from widget values
+os.environ["CATALOG"] = dbutils.widgets.get("catalog")
+os.environ["SCHEMA"] = dbutils.widgets.get("schema")
+os.environ["VECTOR_SEARCH_ENDPOINT"] = dbutils.widgets.get("vs_endpoint_name")
+os.environ["MODEL_BASE_NAME"] = dbutils.widgets.get("model_base_name")
+os.environ["GENIE_SPACE_ID"] = dbutils.widgets.get("genie_space_id")
+
+# Assign Python variables from environment variables
+CATALOG = os.environ["CATALOG"]
+SCHEMA = os.environ["SCHEMA"]
+MODEL_BASE_NAME = os.environ["MODEL_BASE_NAME"]
+VS_ENDPOINT_NAME = os.environ["VECTOR_SEARCH_ENDPOINT"]
+GENIE_SPACE_ID = os.environ["GENIE_SPACE_ID"]
+
+# Error handling for missing or placeholder values
+def _check_env_var(var_name, placeholder):
+    val = os.environ.get(var_name)
+    if not val or val == placeholder or val.startswith('<'):
+        raise ValueError(
+            f"Environment variable {var_name} is not set or is a placeholder. "
+            f"Please set it via config.yaml or the widget above."
+        )
+
+_check_env_var("CATALOG", "your_catalog")
+_check_env_var("SCHEMA", "your_schema")
+_check_env_var("MODEL_BASE_NAME", "your_model_base_name")
+_check_env_var("VECTOR_SEARCH_ENDPOINT", "your_vectorsearch_endpoint_name")
+_check_env_var("GENIE_SPACE_ID", "your_genie_space_id")
+
+# Print values for confirmation
+print(f"Catalog: {CATALOG}")
+print(f"Schema: {SCHEMA}")
+print(f"Model Base Name: {MODEL_BASE_NAME}")
+print(f"VectorSearch_endpoint: {VS_ENDPOINT_NAME}")
+print(f"Genie Space ID: {GENIE_SPACE_ID}")
+
+# Construct Fully Qualified Unity Catalog model name
+UC_MODEL_NAME = f"{CATALOG}.{SCHEMA}.alpha_{MODEL_BASE_NAME}"
+
+print(f"FQ UC Model Name: {UC_MODEL_NAME}")
 
 # COMMAND ----------
 
@@ -123,6 +192,7 @@ print(f"Using catalog: {catalog}, schema: {schema}")
 # MAGIC from typing import Annotated, Any, Generator, Literal, Optional, Sequence, TypedDict, Union
 # MAGIC import json
 # MAGIC from operator import add
+# MAGIC import os
 # MAGIC
 # MAGIC import mlflow
 # MAGIC from databricks_langchain import ChatDatabricks, UCFunctionToolkit, VectorSearchRetrieverTool
@@ -147,13 +217,21 @@ print(f"Using catalog: {catalog}, schema: {schema}")
 # MAGIC ############################################
 # MAGIC LLM_ENDPOINT_NAME = "databricks-claude-3-7-sonnet"
 # MAGIC
-# MAGIC ## can't use widgets?
-# MAGIC CATALOG = "mmt"
-# MAGIC SCHEMA = "LS_agent"
-# MAGIC VECTOR_SEARCH_ENDPOINT = "ls_vs_mmt"
-# MAGIC GENIE_SPACE_ID = "01f0c96ac7941abc82c4d50100a66439"  
+# MAGIC
+# MAGIC # ## hardcode for this example 
+# MAGIC # CATALOG = "mmt"
+# MAGIC # SCHEMA = "LS_agent"
+# MAGIC # VECTOR_SEARCH_ENDPOINT = "ls_vs_mmt"
+# MAGIC # GENIE_SPACE_ID = "01f0c96ac7941abc82c4d50100a66439"  
+# MAGIC
+# MAGIC CATALOG = os.environ.get("CATALOG", "<your_catalog>")
+# MAGIC SCHEMA = os.environ.get("SCHEMA", "<your_schema>")
+# MAGIC VECTOR_SEARCH_ENDPOINT = os.environ.get("VECTOR_SEARCH_ENDPOINT", "<your_vs_endpoint>")
+# MAGIC GENIE_SPACE_ID = os.environ.get("GENIE_SPACE_ID", "<your_genie_space_id>")
+# MAGIC
 # MAGIC
 # MAGIC llm = ChatDatabricks(endpoint=LLM_ENDPOINT_NAME)
+# MAGIC
 # MAGIC
 # MAGIC ############################################
 # MAGIC # Define Tools
@@ -843,8 +921,29 @@ dbutils.library.restartPython()
 # Re-fetch widget values after Python restart
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
+model_base_name = dbutils.widgets.get("model_base_name")
+vs_endpoint_name = dbutils.widgets.get("vs_endpoint_name")
+genie_space_id = dbutils.widgets.get("genie_space_id")
 
-print(f"Using catalog: {catalog}, schema: {schema}")
+# Set environment variables from widget values
+import os
+os.environ["CATALOG"] = catalog
+os.environ["SCHEMA"] = schema
+os.environ["MODEL_BASE_NAME"] = model_base_name
+os.environ["VECTOR_SEARCH_ENDPOINT"] = vs_endpoint_name
+os.environ["GENIE_SPACE_ID"] = genie_space_id
+
+# Assign Python variables from environment variables
+CATALOG = os.environ["CATALOG"]
+SCHEMA = os.environ["SCHEMA"]
+MODEL_BASE_NAME = os.environ["MODEL_BASE_NAME"]
+VS_ENDPOINT_NAME = os.environ["VECTOR_SEARCH_ENDPOINT"]
+GENIE_SPACE_ID = os.environ["GENIE_SPACE_ID"]
+
+print(f"Using catalog: {CATALOG}, schema: {SCHEMA}")
+print(f"Model base name: {MODEL_BASE_NAME}")
+print(f"VectorSearch_endpoint: {VS_ENDPOINT_NAME}")
+print(f"Genie Space ID: {GENIE_SPACE_ID}")
 
 # Import the agent
 from agent_genie import AGENT
